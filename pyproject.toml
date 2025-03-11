@@ -1,0 +1,22 @@
+[project]
+name = "hr-candidate-evaluation"
+version = "0.1.0"
+description = "A system to preprocess candidate data and score them for HR."
+authors = [{name = "Your Name", email = "your.email@example.com"}]
+dependencies = [
+    "mysql-connector-python>=8.0",
+    "openai>=1.0",
+    "fastapi>=0.100",
+    "uvicorn>=0.20",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "flake8>=6.0",
+    "black>=23.0",
+]
+
+[tool.black]
+line-length = 88

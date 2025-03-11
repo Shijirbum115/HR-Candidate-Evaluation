@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Candidate Search</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #2b2b2b;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        #search-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            max-width: 600px;
+            width: 100%;
+        }
+        #search-input {
+            flex-grow: 1;
+            padding: 12px 20px;
+            font-size: 16px;
+            background-color: #3c3c3c;
+            border: none;
+            border-radius: 25px;
+            color: #e0e0e0;
+            outline: none;
+            transition: background-color 0.3s;
+        }
+        #search-input:focus {
+            background-color: #4a4a4a;
+        }
+        #search-button {
+            padding: 12px 25px;
+            font-size: 16px;
+            background-color: #5c5c5c;
+            color: #e0e0e0;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #search-button:hover {
+            background-color: #6e6e6e;
+        }
+        #results {
+            list-style-type: none;
+            padding: 0;
+            max-width: 800px;
+            width: 100%;
+            margin-top: 20px;
+        }
+        .candidate {
+            background-color: #3c3c3c;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+        }
+        .candidate-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .rank {
+            font-weight: bold;
+            color: #00b4d8;
+        }
+        .name {
+            font-size: 20px;
+            font-weight: 500;
+        }
+        .candidate-id {
+            font-size: 14px;
+            color: #a0a0a0;
+            margin-left: 10px;
+        }
+        .score {
+            color: #90be6d;
+        }
+        .experience-list, .education {
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        .experience-item {
+            margin: 5px 0;
+            padding-left: 10px;
+            border-left: 2px solid #5c5c5c;
+        }
+        .no-results {
+            color: #e63946;
+            font-style: italic;
+        }
+        #loading {
+            display: none;
+            position: fixed;
+            top: 55%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 50px;
+            height: 50px;
+            border: 5px solid #3c3c3c;
+            border-top: 5px solid #00b4d8;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            box-shadow: 0 0 10px rgba(0, 180, 216, 0.3);
+        }
+        @keyframes spin {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="search-container">
+        <input type="text" id="search-input" placeholder="Search candidates (e.g., Борлуулагч, Дата аналист)">
+        <button id="search-button" onclick="searchCandidates()">Search</button>
+    </div>
+    <div id="loading"></div>
+    <ul id="results"></ul>
+
+    <script>
+        const loadingIndicator = document.getElementById("loading");
+        const resultsList = document.getElementById("results");
+
+        async function searchCandidates() {
+            const searchTerm = document.getElementById("search-input").value.trim();
+            if (!searchTerm) {
+                alert("Please enter a search term!");
+                return;
+            }
+
+            loadingIndicator.style.display = "block";
+            resultsList.innerHTML = "";
+
+            try {
+                const response = await fetch(`/candidates/${encodeURIComponent(searchTerm)}`);
+                const data = await response.json();
+
+                if (data.candidates.length === 0) {
+                    resultsList.innerHTML = '<li class="no-results">No candidates found.</li>';
+                } else {
+                    data.candidates.forEach(candidate => {
+                        const li = document.createElement("li");
+                        li.className = "candidate";
+                        
+                        let html = `
+                            <div class="candidate-header">
+                                <span>
+                                    <span class="rank">${candidate.rank}.</span> ${candidate.name}
+                                    <span class="candidate-id">Candidate ID: ${candidate.candidate_id}</span>
+                                </span>
+                                <span class="score">Score: ${candidate.top_score}</span>
+                            </div>
+                        `;
+
+                        html += '<div class="experience-list"><strong>Work Experience:</strong>';
+                        candidate.experiences.forEach(exp => {
+                            html += `
+                                <div class="experience-item">
+                                    ${exp.position} at ${exp.company} (${exp.start_date} - ${exp.end_date})
+                                </div>
+                            `;
+                        });
+                        html += '</div>';
+
+                        html += `
+                            <div class="education">
+                                <strong>Education:</strong> ${candidate.degree} from ${candidate.university} (Rank: ${candidate.university_rank})
+                            </div>
+                        `;
+
+                        li.innerHTML = html;
+                        resultsList.appendChild(li);
+                    });
+                }
+            } catch (error) {
+                resultsList.innerHTML = '<li class="no-results">Error loading candidates.</li>';
+                console.error(error);
+            } finally {
+                loadingIndicator.style.display = "none";
+            }
+        }
+
+        document.getElementById("search-input").addEventListener("keypress", function(event) {
+            if (event.key === "Enter") {
+                searchCandidates();
+            }
+        });
+    </script>
+</body>
+</html>
