@@ -20,6 +20,7 @@
             display: flex;
             gap: 10px;
             margin-bottom: 30px;
+            margin-top: 30px;
             max-width: 600px;
             width: 100%;
         }
@@ -99,23 +100,89 @@
             color: #e63946;
             font-style: italic;
         }
-        #loading {
-            display: none;
+        .loader {
+            width: 4px;
+            aspect-ratio: 1;
+            border-radius: 50%;
+            color: #00b4d8;
+            box-shadow: 
+                19px -19px 0 0px rgba(0, 180, 216, 0.8),
+                38px -19px 0 0px rgba(0, 180, 216, 0.8),
+                57px -19px 0 0px rgba(0, 180, 216, 0.8),
+                19px 0     0 5px rgba(0, 180, 216, 1),
+                38px 0     0 5px rgba(0, 180, 216, 1),
+                57px 0     0 5px rgba(0, 180, 216, 1),
+                19px 19px  0 0px rgba(0, 180, 216, 0.8),
+                38px 19px  0 0px rgba(0, 180, 216, 0.8),
+                57px 19px  0 0px rgba(0, 180, 216, 0.8);
+            transform: translateX(-38px);
+            animation: l26 2s infinite linear;
             position: fixed;
             top: 55%;
             left: 50%;
-            transform: translate(-50%, -50%);
-            width: 50px;
-            height: 50px;
-            border: 5px solid #3c3c3c;
-            border-top: 5px solid #00b4d8;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            box-shadow: 0 0 10px rgba(0, 180, 216, 0.3);
+            display: none;
         }
-        @keyframes spin {
-            0% { transform: translate(-50%, -50%) rotate(0deg); }
-            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        @keyframes l26 {
+            12.5% {box-shadow: 
+                19px -19px 0 0px rgba(0, 180, 216, 0.8), 
+                38px -19px 0 0px rgba(0, 180, 216, 0.8), 
+                57px -19px 0 5px rgba(0, 180, 216, 1),
+                19px 0     0 5px rgba(0, 180, 216, 1), 
+                38px 0     0 0px rgba(0, 180, 216, 0.8), 
+                57px 0     0 5px rgba(0, 180, 216, 1),
+                19px 19px  0 0px rgba(0, 180, 216, 0.8), 
+                38px 19px  0 0px rgba(0, 180, 216, 0.8), 
+                57px 19px  0 0px rgba(0, 180, 216, 0.8)}
+            25%   {box-shadow: 
+                19px -19px 0 5px rgba(0, 180, 216, 1), 
+                38px -19px 0 0px rgba(0, 180, 216, 0.8), 
+                57px -19px 0 5px rgba(0, 180, 216, 1),
+                19px 0     0 0px rgba(0, 180, 216, 0.8), 
+                38px 0     0 0px rgba(0, 180, 216, 0.8), 
+                57px 0     0 0px rgba(0, 180, 216, 0.8),
+                19px 19px  0 0px rgba(0, 180, 216, 0.8), 
+                38px 19px  0 5px rgba(0, 180, 216, 1), 
+                57px 19px  0 0px rgba(0, 180, 216, 0.8)}
+            50%   {box-shadow: 
+                19px -19px 0 5px rgba(0, 180, 216, 1), 
+                38px -19px 0 5px rgba(0, 180, 216, 1), 
+                57px -19px 0 0px rgba(0, 180, 216, 0.8),
+                19px 0     0 0px rgba(0, 180, 216, 0.8), 
+                38px 0     0 0px rgba(0, 180, 216, 0.8), 
+                57px 0     0 0px rgba(0, 180, 216, 0.8),
+                19px 19px  0 0px rgba(0, 180, 216, 0.8), 
+                38px 19px  0 0px rgba(0, 180, 216, 0.8), 
+                57px 19px  0 5px rgba(0, 180, 216, 1)}
+            62.5% {box-shadow: 
+                19px -19px 0 0px rgba(0, 180, 216, 0.8), 
+                38px -19px 0 0px rgba(0, 180, 216, 0.8), 
+                57px -19px 0 0px rgba(0, 180, 216, 0.8),
+                19px 0     0 5px rgba(0, 180, 216, 1), 
+                38px 0     0 0px rgba(0, 180, 216, 0.8), 
+                57px 0     0 0px rgba(0, 180, 216, 0.8),
+                19px 19px  0 0px rgba(0, 180, 216, 0.8), 
+                38px 19px  0 5px rgba(0, 180, 216, 1), 
+                57px 19px  0 5px rgba(0, 180, 216, 1)}
+            75%   {box-shadow: 
+                19px -19px 0 0px rgba(0, 180, 216, 0.8), 
+                38px -19px 0 5px rgba(0, 180, 216, 1), 
+                57px -19px 0 0px rgba(0, 180, 216, 0.8),
+                19px 0     0 0px rgba(0, 180, 216, 0.8), 
+                38px 0     0 0px rgba(0, 180, 216, 0.8), 
+                57px 0     0 5px rgba(0, 180, 216, 1),
+                19px 19px  0 0px rgba(0, 180, 216, 0.8), 
+                38px 19px  0 0px rgba(0, 180, 216, 0.8), 
+                57px 19px  0 5px rgba(0, 180, 216, 1)}
+            87.5% {box-shadow: 
+                19px -19px 0 0px rgba(0, 180, 216, 0.8), 
+                38px -19px 0 5px rgba(0, 180, 216, 1), 
+                57px -19px 0 0px rgba(0, 180, 216, 0.8),
+                19px 0     0 0px rgba(0, 180, 216, 0.8), 
+                38px 0     0 5px rgba(0, 180, 216, 1), 
+                57px 0     0 0px rgba(0, 180, 216, 0.8),
+                19px 19px  0 5px rgba(0, 180, 216, 1), 
+                38px 19px  0 0px rgba(0, 180, 216, 0.8), 
+                57px 19px  0 0px rgba(0, 180, 216, 0.8)}
         }
     </style>
 </head>
@@ -124,7 +191,7 @@
         <input type="text" id="search-input" placeholder="Search candidates (e.g., Борлуулагч, Дата аналист)">
         <button id="search-button" onclick="searchCandidates()">Search</button>
     </div>
-    <div id="loading"></div>
+    <div id="loading" class="loader"></div>
     <ul id="results"></ul>
 
     <script>

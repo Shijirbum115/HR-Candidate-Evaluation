@@ -1,49 +1,33 @@
-from datetime import datetime, date
-from rapidfuzz import fuzz
+from datetime import date
 import logging
 
 logger = logging.getLogger(__name__)
 
-def calculate_score(profile, search_term):
-    """Calculate candidate score based on school, experience, and industry match without AI."""
+def calculate_vector_score(profile, search_embedding):
+    """Calculate candidate score using vector similarity and other factors."""
     try:
-        # Use the full search term as job title, no parsing
-        job_title = search_term.strip().lower()
-        
-        # Hardcoded industry keywords (extend as needed)
-        industries = ["санхүү", "харилцаа холбоо", "уул уурхай", "боловсрол", "үйлчилгээ", "технологи"]
-        industry = None
-        for ind in industries:
-            if ind in job_title:
-                industry = ind
-                job_title = job_title.replace(ind, "").strip()  # Remove industry from job title
-                break
-
-        # School (x): 1-4 from stored university_rank, default to 1 if None
+        # School ranking (x): 1-4, from stored university_rank
         x = profile["university_rank"] if profile["university_rank"] is not None else 1
         
-        # Experience (y): Duration * Relevance, max 6
+        # Vector similarity score (vs): already calculated in DB query (0-1 range)
+        vs = profile["position_similarity_score"]
+        
+        # Experience duration (ed): Years of experience, capped at 5 years
         start = profile["start_date"]
         end = profile["end_date"] if profile["end_date"] else date.today()
-        y = 0
+        ed = 0
         if start and isinstance(start, date):
-            years = min((end - start).days / 365.25, 5)  # Cap at 5 years
-            relevance = fuzz.token_sort_ratio(profile["position"].lower(), job_title) / 100
-            y = years * relevance if relevance > 0.7 else 0  # Lower threshold to 70%
-            y = min(y, 6)
+            ed = min((end - start).days / 365.25, 5) / 5  # Normalize to 0-1
         
-        # Industry (z): 0-2, string matching
-        z = 0
-        if industry and profile["company_industry"]:
-            if industry.lower() in profile["company_industry"].lower():
-                z = 2  # Exact match
-            elif fuzz.token_sort_ratio(industry.lower(), profile["company_industry"].lower()) > 70:
-                z = 1  # Similar match
+        # Combine factors with appropriate weights
+        # School ranking: 20%, Vector similarity: 50%, Experience duration: 30%
+        total = (0.2 * x/4) + (0.5 * vs) + (0.3 * ed)
         
-        # Total: Normalize to 0-10 (max raw score = 12: 4 + 6 + 2)
-        total = (x + y + z) / 12 * 10
-        logger.debug(f"Score: {total:.2f} (x={x}, y={y}, z={z})")
-        return total
+        # Scale to 0-10
+        scaled_score = total * 10
+        
+        logger.debug(f"Vector score: {scaled_score:.2f} (x={x}, vs={vs:.2f}, ed={ed:.2f})")
+        return scaled_score
     except Exception as e:
-        logger.error(f"Scoring failed: {str(e)}")
+        logger.error(f"Vector scoring failed: {str(e)}")
         return 0
