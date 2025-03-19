@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCS Holding - Recruitment Dashboard</title>
+    <style>
+        /* Base styles */
+        :root {
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #252525;
+            --text-primary: #ffffff;
+            --text-secondary: #b8b8b8;
+            --accent: #4CAF50;
+            --border: #3a3a3a;
+            --card-bg: #2d2d2d;
+            --button-primary: #565656;
+            --button-hover: #686868;
+            --button-accent: #8BC34A;
+        }
+
+        .light-mode {
+            --bg-primary: #f5f5f5;
+            --bg-secondary: #e9e9e9;
+            --text-primary: #333333;
+            --text-secondary: #555555;
+            --accent: #4CAF50;
+            --border: #cccccc;
+            --card-bg: #ffffff;
+            --button-primary: #e0e0e0;
+            --button-hover: #d0d0d0;
+            --button-accent: #8BC34A;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        /* Header styles */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 25px;
+            background-color: var(--bg-primary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .logo span:first-child {
+            margin-right: 10px;
+        }
+
+        .search-bar {
+            display: flex;
+            align-items: center;
+            flex-grow: 1;
+            max-width: 500px;
+            margin: 0 20px;
+        }
+
+        .search-bar input {
+            background-color: var(--bg-secondary);
+            border: none;
+            border-radius: 20px;
+            padding: 10px 15px;
+            width: 100%;
+            color: var(--text-primary);
+        }
+
+        .search-button {
+            background-color: var(--button-primary);
+            color: var(--text-primary);
+            border: none;
+            border-radius: 20px;
+            padding: 10px 15px;
+            margin-left: -50px;
+            cursor: pointer;
+        }
+
+        .theme-toggle {
+            display: flex;
+            align-items: center;
+        }
+
+        .theme-toggle button {
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            font-size: 18px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+
+        /* Main content */
+        .container {
+            display: flex;
+            padding: 20px;
+            height: calc(100vh - 70px);
+            gap: 20px;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 220px;
+            background-color: var(--bg-primary);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            overflow-y: auto;
+        }
+
+        .sidebar-title {
+            padding: 15px;
+            border-bottom: 1px solid var(--border);
+            font-weight: bold;
+        }
+
+        .candidate-list {
+            list-style-type: none;
+        }
+
+        .candidate-item {
+            padding: 12px 15px;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+        }
+
+        .candidate-item:hover {
+            background-color: var(--bg-secondary);
+        }
+
+        .candidate-name {
+            font-weight: bold;
+            color: var(--accent);
+            margin-bottom: 5px;
+        }
+
+        .candidate-id {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* Main content area */
+        .content {
+            flex-grow: 1;
+            display: flex;
+            gap: 20px;
+        }
+
+        .candidates-section {
+            flex-grow: 1;
+            background-color: var(--bg-primary);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            overflow-y: auto;
+        }
+
+        .candidate-card {
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            margin: 15px;
+            padding: 15px;
+        }
+
+        .candidate-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .candidate-title {
+            display: flex;
+            align-items: center;
+        }
+
+        .candidate-number {
+            color: var(--accent);
+            margin-right: 5px;
+            font-weight: bold;
+        }
+
+        .candidate-name-main {
+            margin-right: 15px;
+        }
+
+        .score {
+            color: var(--accent);
+        }
+
+        .experience-section, .education-section {
+            margin-top: 15px;
+        }
+
+        .section-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .experience-item {
+            padding: 8px;
+            margin-bottom: 5px;
+            background-color: var(--bg-secondary);
+            border-radius: 4px;
+        }
+
+        /* Details panel */
+        .details-panel {
+            width: 350px;
+            background-color: var(--bg-primary);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            padding: 15px;
+            overflow-y: auto;
+        }
+
+        .details-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .detail-experience-group {
+            margin-bottom: 20px;
+        }
+
+        .detail-experience-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .detail-experience-item {
+            padding: 8px;
+            margin-bottom: 8px;
+            background-color: var(--bg-secondary);
+            border-radius: 4px;
+        }
+
+        .action-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+
+        .save-button, .profile-button {
+            padding: 10px 15px;
+            border-radius: 5px;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .save-button {
+            background-color: var(--button-primary);
+            color: var(--text-primary);
+        }
+
+        .profile-button {
+            background-color: var(--button-accent);
+            color: white;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 1200px) {
+            .container {
+                flex-direction: column;
+            }
+            
+            .sidebar {
+                width: 100%;
+                height: auto;
+                max-height: 200px;
+            }
+            
+            .content {
+                flex-direction: column;
+            }
+            
+            .details-panel {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">
+            <span>⚒</span>
+            <span>MCS</span>
+            <span>holding</span>
+        </div>
+        <div class="search-bar">
+            <input type="text" placeholder="Борлуулагч">
+            <button class="search-button">Search</button>
+        </div>
+        <div class="theme-toggle">
+            <button id="light-mode-toggle">☀️</button>
+            <button id="dark-mode-toggle">🌙</button>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="sidebar">
+            <div class="sidebar-title">Saved Candidates</div>
+            <ul class="candidate-list">
+                <li class="candidate-item">
+                    <div class="candidate-name">1. Эрхэмбаяр Гантулга</div>
+                    <div class="candidate-id">Candidate ID: 2044</div>
+                </li>
+                <li class="candidate-item">
+                    <div class="candidate-name">1. Эрхэмбаяр Гантулга</div>
+                    <div class="candidate-id">Candidate ID: 2044</div>
+                </li>
+                <li class="candidate-item">
+                    <div class="candidate-name">1. Эрхэмбаяр Гантулга</div>
+                    <div class="candidate-id">Candidate ID: 2044</div>
+                </li>
+                <li class="candidate-item">
+                    <div class="candidate-name">1. Эрхэмбаяр Гантулга</div>
+                    <div class="candidate-id">Candidate ID: 2044</div>
+                </li>
+                <li class="candidate-item">
+                    <div class="candidate-name">1. Эрхэмбаяр Гантулга</div>
+                    <div class="candidate-id">Candidate ID: 2044</div>
+                </li>
+            </ul>
+        </div>
+
+        <div class="content">
+            <div class="candidates-section">
+                <div class="candidate-card">
+                    <div class="candidate-header">
+                        <div class="candidate-title">
+                            <span class="candidate-number">1.</span>
+                            <span class="candidate-name-main">Эрхэмбаяр Гантулга</span>
+                            <span class="candidate-id">Candidate ID: 2044</span>
+                        </div>
+                        <div class="score">Score: 3.33</div>
+                    </div>
+                    <div class="experience-section">
+                        <div class="section-title">Work Experience:</div>
+                        <div class="experience-item">Борлуулагч at Ngpn llc (2015-01-01 - 2016-03-01)</div>
+                        <div class="experience-item">Борлуулагч холоон at Атар өргөө (2016-04-01 - 2017-01-01)</div>
+                        <div class="experience-item">Геологич at Бурдэл Майнинг (2017-03-01 - 2022-12-01)</div>
+                    </div>
+                    <div class="education-section">
+                        <div class="section-title">Education:</div>
+                        <div class="experience-item">Геофизикч from монгол улсын их сургууль (Rank: 4)</div>
+                    </div>
+                </div>
+
+                <div class="candidate-card">
+                    <div class="candidate-header">
+                        <div class="candidate-title">
+                            <span class="candidate-number">5.</span>
+                            <span class="candidate-name-main">Урангоо Базарбилэг</span>
+                            <span class="candidate-id">Candidate ID: 51</span>
+                        </div>
+                        <div class="score">Score: 2.5</div>
+                    </div>
+                    <div class="experience-section">
+                        <div class="section-title">Work Experience:</div>
+                        <div class="experience-item">Борлуулагч at РЭМ ХХК (2021-01-01 - 2021-01-01)</div>
+                    </div>
+                </div>
+
+                <div class="candidate-card">
+                    <div class="candidate-header">
+                        <div class="candidate-title">
+                            <span class="candidate-number">2.</span>
+                            <span class="candidate-name-main">Батмөрөн Мөнхбаяр</span>
+                            <span class="candidate-id">Candidate ID: 2183</span>
+                        </div>
+                        <div class="score">Score: 3.33</div>
+                    </div>
+                    <div class="experience-section">
+                        <div class="section-title">Work Experience:</div>
+                        <div class="experience-item">Гараат борлуулагч at Mobicon LLC (2016-06-01 - 2016-12-01)</div>
+                    </div>
+                    <div class="education-section">
+                        <div class="section-title">Education:</div>
+                        <div class="experience-item">Бизнес менежмент from монгол улсын их сургууль (Rank: 4)</div>
+                    </div>
+                </div>
+
+                <div class="candidate-card">
+                    <div class="candidate-header">
+                        <div class="candidate-title">
+                            <span class="candidate-number">3.</span>
+                            <span class="candidate-name-main">Анужин Алтанхуу</span>
+                            <span class="candidate-id">Candidate ID: 2730</span>
+                        </div>
+                        <div class="score">Score: 3.33</div>
+                    </div>
+                    <div class="experience-section">
+                        <div class="section-title">Work Experience:</div>
+                        <div class="experience-item">Борлуулагч at We care medical equipment (2022-01-01 - 2023-06-01)</div>
+                    </div>
+                    <div class="education-section">
+                        <div class="section-title">Education:</div>
+                        <div class="experience-item">Статистик from монгол улсын их сургууль (Rank: 4)</div>
+                    </div>
+                </div>
+
+                <div class="candidate-card">
+                    <div class="candidate-header">
+                        <div class="candidate-title">
+                            <span class="candidate-number">4.</span>
+                            <span class="candidate-name-main">Эрдэм Жаргалсайхан</span>
+                            <span class="candidate-id">Candidate ID: 3464</span>
+                        </div>
+                        <div class="score">Score: 3.33</div>
+                    </div>
+                    <div class="experience-section">
+                        <div class="section-title">Work Experience:</div>
+                        <div class="experience-item">Менежер at Миакс логистикс хк (2017-12-01 - 2019-08-01)</div>
+                        <div class="experience-item">Борлуулагч at Мөнгө агро хх (2019-09-01 - 2022-06-01)</div>
+                        <div class="experience-item">Худалдааны төлөөлөгч at Наран Агудас хк (2022-01-01 - 2022-01-01)</div>
+                    </div>
+                    <div class="education-section">
+                        <div class="section-title">Education:</div>
+                        <div class="experience-item">Бизнес удирлага маркетингийн менежмент from олон улсын улаанбаатар их сургууль (Rank: 4)</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="details-panel">
+                <div class="details-header">
+                    <h2>Candidate Details</h2>
+                    <div class="score">Score: 3.33</div>
+                </div>
+                <!-- Add candidate details content here -->
+                <div class="action-buttons">
+                    <button class="save-button">Save Candidate</button>
+                    <button class="profile-button">View Full Profile</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Theme toggle functionality
+        const lightModeButton = document.getElementById('light-mode-toggle');
+        const darkModeButton = document.getElementById('dark-mode-toggle');
+
+        lightModeButton.addEventListener('click', () => {
+            document.body.classList.add('light-mode');
+        });
+
+        darkModeButton.addEventListener('click', () => {
+            document.body.classList.remove('light-mode');
+        });
+    </script>
+</body>
+</html>
