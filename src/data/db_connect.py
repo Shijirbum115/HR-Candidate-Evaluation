@@ -1,41 +1,25 @@
 import mysql.connector
 from mysql.connector import pooling
 import time
+import numpy as np
+from datetime import date
 from src.utils.config import load_config
 from src.utils.logger import setup_logging
+from src.model.vector_scoring import generate_search_embedding
 
 logger = setup_logging()
 
 # Global connection pools
-_cloud_pool = None
-_local_pool = None
+_mysql_pool = None
+_pg_pool = None
 
-def get_cloud_pool():
-    """Get or create a MySQL connection pool for cloud database."""
-    global _cloud_pool
-    if _cloud_pool is None:
+def get_mysql_pool():
+    """Get or create a MySQL connection pool."""
+    global _mysql_pool
+    if _mysql_pool is None:
         config = load_config()
-        _cloud_pool = pooling.MySQLConnectionPool(
-            pool_name="cloud_pool",
-            pool_size=5,
-            host=config["CLOUD_DB_HOST"],
-            user=config["CLOUD_DB_USER"],
-            password=config["CLOUD_DB_PASSWORD"],
-            database=config["CLOUD_DB_NAME"],
-            charset='utf8mb4',
-            use_pure=True,  # Pure Python implementation for better Unicode support
-            connect_timeout=60  # Longer timeout for stable connections
-        )
-        logger.info("Cloud database connection pool established")
-    return _cloud_pool
-
-def get_local_pool():
-    """Get or create a MySQL connection pool for local database."""
-    global _local_pool
-    if _local_pool is None:
-        config = load_config()
-        _local_pool = pooling.MySQLConnectionPool(
-            pool_name="local_pool",
+        _mysql_pool = pooling.MySQLConnectionPool(
+            pool_name="mysql_pool",
             pool_size=5,
             host=config["LOCAL_DB_HOST"],
             user=config["LOCAL_DB_USER"],
@@ -44,128 +28,68 @@ def get_local_pool():
             charset='utf8mb4',
             use_pure=True
         )
-        logger.info("Local database connection pool established")
-    return _local_pool
+        logger.info("MySQL database connection pool established")
+    return _mysql_pool
 
-class CloudDatabase:
-    """Class for interacting with the cloud MySQL database with connection pooling."""
-    
-    def __init__(self):
-        """Initialize connection from pool with retry logic."""
-        self.pool = get_cloud_pool()
-        self.conn = None
-        self.cursor = None
-        self._get_connection()
-        logger.info("Cloud database connection established")
-
-    def _get_connection(self):
-        """Get a connection from the pool with retry logic."""
-        max_attempts = 3
-        for attempt in range(max_attempts):
+def get_pg_pool():
+    """Get or create a PostgreSQL connection pool if PostgreSQL is configured."""
+    global _pg_pool
+    if _pg_pool is None:
+        config = load_config()
+        # Check if PostgreSQL config is available
+        if config.get("PG_DB_HOST"):
             try:
-                self.conn = self.pool.get_connection()
-                self.cursor = self.conn.cursor(buffered=True)
-                return
+                # Import libraries only if needed
+                from psycopg2.pool import ThreadedConnectionPool
+                import pgvector.psycopg2
+                
+                _pg_pool = ThreadedConnectionPool(
+                    minconn=1,
+                    maxconn=5,
+                    host=config["PG_DB_HOST"],
+                    user=config["PG_DB_USER"],
+                    password=config["PG_DB_PASSWORD"],
+                    database=config["PG_DB_NAME"]
+                )
+                logger.info("PostgreSQL database connection pool established")
+            except ImportError:
+                logger.warning("PostgreSQL or pgvector not available. Using MySQL only.")
             except Exception as e:
-                if attempt < max_attempts - 1:
-                    logger.warning(f"Connection attempt {attempt+1} failed: {str(e)}. Retrying...")
-                    time.sleep(1)  # Wait before retrying
-                else:
-                    logger.error(f"Failed to get database connection after {max_attempts} attempts")
-                    raise
-
-    def _check_connection(self):
-        """Check if connection is alive, reconnect if needed."""
-        try:
-            # Ping the connection
-            self.conn.ping(reconnect=False, attempts=1, delay=0)
-        except:
-            logger.warning("Connection lost, reconnecting...")
-            self.close()
-            self._get_connection()
-
-    def fetch_candidate_data(self, batch_size=1000, offset=0):
-        """Fetch a batch of candidate data with connection check."""
-        try:
-            self._check_connection()
-            
-            query = """
-            SELECT 
-                cud.id AS candidate_id,
-                cud.birthdate,
-                cve.company,
-                csd.title AS company_industry,
-                cve.position,
-                cve.start AS expr_start,
-                cve.end AS expr_end,
-                ce.school,
-                ce.pro,
-                ce.start AS edu_start,
-                ce.end AS edu_end,
-                cud.firstname,
-                cud.lastname
-            FROM career_user_data cud
-            LEFT JOIN career_cv_exprs cve ON cud.id = cve.cv_id
-            LEFT JOIN career_cv_edus ce ON cud.id = ce.cv_id
-            LEFT JOIN career_site_data csd ON cve.branch_id = csd.option_id AND csd.grp_id = 3
-            ORDER BY cud.id
-            LIMIT %s OFFSET %s
-            """
-            self.cursor.execute(query, (batch_size, offset))
-            return self.cursor.fetchall()
-        except mysql.connector.Error as e:
-            logger.error(f"MySQL error fetching candidate data: {str(e)}")
-            # Attempt to reconnect and retry once
-            self._get_connection()
-            self.cursor.execute(query, (batch_size, offset))
-            return self.cursor.fetchall()
-
-    def get_total_rows(self):
-        """Get total count of records to migrate with connection check."""
-        try:
-            self._check_connection()
-            
-            query = """
-            SELECT COUNT(DISTINCT cud.id) 
-            FROM career_user_data cud
-            """
-            self.cursor.execute(query)
-            return self.cursor.fetchone()[0]
-        except mysql.connector.Error as e:
-            logger.error(f"MySQL error getting total rows: {str(e)}")
-            # Attempt to reconnect and retry once
-            self._get_connection()
-            self.cursor.execute(query)
-            return self.cursor.fetchone()[0]
-
-    def close(self):
-        """Close cursor and return connection to pool."""
-        if self.cursor:
-            self.cursor.close()
-        if self.conn:
-            self.conn.close()
-        self.cursor = None
-        self.conn = None
-        logger.info("Cloud database connection closed")
+                logger.error(f"Failed to create PostgreSQL pool: {str(e)}")
+    return _pg_pool
 
 class LocalDatabase:
-    """Class for interacting with the local MySQL database with connection pooling."""
+    """Class for interacting with the database with connection pooling."""
     
     def __init__(self):
-        """Initialize connection from pool."""
-        self.pool = get_local_pool()
+        """Initialize connection from pool with database type detection."""
+        self.pg_pool = get_pg_pool()
+        self.mysql_pool = get_mysql_pool()
+        
+        # Determine which database to use
+        self.use_postgres = self.pg_pool is not None
+        
+        # Initialize connections
         self.conn = None
         self.cursor = None
         self._get_connection()
-        logger.info("Local database connection established")
+        
+        if self.use_postgres:
+            logger.info("Using PostgreSQL with vector capabilities")
+        else:
+            logger.info("Using MySQL database")
 
     def _get_connection(self):
-        """Get a connection from the pool with retry logic."""
+        """Get a connection from the appropriate pool with retry logic."""
         max_attempts = 3
         for attempt in range(max_attempts):
             try:
-                self.conn = self.pool.get_connection()
-                self.cursor = self.conn.cursor(buffered=True)
+                if self.use_postgres:
+                    self.conn = self.pg_pool.getconn()
+                    self.cursor = self.conn.cursor()
+                else:
+                    self.conn = self.mysql_pool.get_connection()
+                    self.cursor = self.conn.cursor(buffered=True)
                 return
             except Exception as e:
                 if attempt < max_attempts - 1:
@@ -179,115 +103,107 @@ class LocalDatabase:
         """Check if connection is alive, reconnect if needed."""
         try:
             # Ping the connection
-            self.conn.ping(reconnect=False, attempts=1, delay=0)
+            if self.use_postgres:
+                self.cursor.execute("SELECT 1")
+            else:
+                self.conn.ping(reconnect=False, attempts=1, delay=0)
         except:
             logger.warning("Connection lost, reconnecting...")
             self.close()
             self._get_connection()
 
-    def save_candidates(self, data):
-        """Save candidate profile data with connection check."""
-        try:
-            self._check_connection()
-            
-            query = """
-            INSERT INTO candidate_profiles 
-            (candidate_id, birthdate, firstname, lastname)
-            VALUES (%s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-                birthdate = VALUES(birthdate),
-                firstname = VALUES(firstname),
-                lastname = VALUES(lastname)
-            """
-            self.cursor.executemany(query, data)
-            self.conn.commit()
-            logger.info(f"Saved {len(data)} candidates")
-        except mysql.connector.Error as e:
-            self.conn.rollback()
-            logger.error(f"MySQL error saving candidates: {str(e)}")
-            # Try to reconnect and retry
-            self._get_connection()
-            self.cursor.executemany(query, data)
-            self.conn.commit()
-
-    def save_experiences(self, data):
-        """Save work experience data with connection check."""
-        try:
-            self._check_connection()
-            
-            query = """
-            INSERT IGNORE INTO candidate_experiences 
-            (candidate_id, company, company_industry, position, start_date, end_date)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            """
-            self.cursor.executemany(query, data)
-            self.conn.commit()
-            logger.info(f"Saved {len(data)} experiences")
-        except mysql.connector.Error as e:
-            self.conn.rollback()
-            logger.error(f"MySQL error saving experiences: {str(e)}")
-            # Try to reconnect and retry
-            self._get_connection()
-            self.cursor.executemany(query, data)
-            self.conn.commit()
-
-    def save_education(self, data):
-        """Save education data with connection check."""
-        try:
-            self._check_connection()
-            
-            query = """
-            INSERT IGNORE INTO candidate_education 
-            (candidate_id, school, university_rank, degree, start_year, end_year)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            """
-            self.cursor.executemany(query, data)
-            self.conn.commit()
-            logger.info(f"Saved {len(data)} education records")
-        except mysql.connector.Error as e:
-            self.conn.rollback()
-            logger.error(f"MySQL error saving education: {str(e)}")
-            # Try to reconnect and retry
-            self._get_connection()
-            self.cursor.executemany(query, data)
-            self.conn.commit()
-
     def fetch_profiles(self, search_term):
-        """Fetch candidate profiles matching a search term with connection check."""
+        """Fetch candidate profiles matching a search term with vector similarity if possible."""
         try:
             self._check_connection()
             
-            # First, get candidate IDs matching the search term
-            query_ids = """
-            SELECT DISTINCT cp.candidate_id
-            FROM candidate_profiles cp
-            LEFT JOIN candidate_experiences ce ON cp.candidate_id = ce.candidate_id
-            WHERE ce.position LIKE %s OR ce.company_industry LIKE %s
-            """
-            self.cursor.execute(query_ids, (f"%{search_term}%", f"%{search_term}%"))
-            candidate_ids = [row[0] for row in self.cursor.fetchall()]
-            
-            if not candidate_ids:
-                return []
+            if self.use_postgres:
+                # Vector-based search in PostgreSQL
+                # Generate embedding for search term
+                search_embedding = generate_search_embedding(search_term)
+                
+                if search_embedding is not None:
+                    # Convert numpy array to list for PostgreSQL
+                    vector_str = ','.join(str(x) for x in search_embedding)
+                    
+                    # Use pgvector's cosine distance operator (<=>)
+                    query = """
+                    WITH ranked_experiences AS (
+                        SELECT 
+                            cp.candidate_id, 
+                            cp.birthdate,
+                            ce.company,
+                            ce.company_industry,
+                            ce.position,
+                            ce.start_date,
+                            ce.end_date,
+                            ced.school,
+                            ced.degree,
+                            cp.firstname,
+                            cp.lastname,
+                            ced.university_rank,
+                            1 - (ce.position_vector <=> %s::vector) AS position_similarity_score
+                        FROM candidate_profiles cp
+                        JOIN candidate_experiences ce ON cp.candidate_id = ce.candidate_id
+                        LEFT JOIN candidate_education ced ON cp.candidate_id = ced.candidate_id
+                        WHERE ce.position_vector IS NOT NULL
+                        ORDER BY position_similarity_score DESC
+                        LIMIT 50
+                    )
+                    SELECT * FROM ranked_experiences
+                    """
+                    self.cursor.execute(query, (vector_str,))
+                else:
+                    # Fallback to text search if embedding generation fails
+                    query = """
+                    SELECT 
+                        cp.candidate_id, cp.birthdate, ce.company, ce.company_industry, ce.position,
+                        ce.start_date, ce.end_date, ced.school, ced.degree, cp.firstname, cp.lastname,
+                        ced.university_rank, 0 AS position_similarity_score
+                    FROM candidate_profiles cp
+                    LEFT JOIN candidate_experiences ce ON cp.candidate_id = ce.candidate_id
+                    LEFT JOIN candidate_education ced ON cp.candidate_id = ced.candidate_id
+                    WHERE ce.position ILIKE %s OR ce.company_industry ILIKE %s
+                    LIMIT 50
+                    """
+                    self.cursor.execute(query, (f"%{search_term}%", f"%{search_term}%"))
+            else:
+                # MySQL text-based search
+                # First, get candidate IDs matching the search term
+                query_ids = """
+                SELECT DISTINCT cp.candidate_id
+                FROM candidate_profiles cp
+                LEFT JOIN candidate_experiences ce ON cp.candidate_id = ce.candidate_id
+                WHERE ce.position LIKE %s OR ce.company_industry LIKE %s
+                """
+                self.cursor.execute(query_ids, (f"%{search_term}%", f"%{search_term}%"))
+                candidate_ids = [row[0] for row in self.cursor.fetchall()]
+                
+                if not candidate_ids:
+                    return []
 
-            # Then, fetch all data for those candidates
-            query = """
-            SELECT 
-                cp.candidate_id, cp.birthdate, ce.company, ce.company_industry, ce.position,
-                ce.start_date, ce.end_date, ced.school, ced.degree, cp.firstname, cp.lastname,
-                ced.university_rank
-            FROM candidate_profiles cp
-            LEFT JOIN candidate_experiences ce ON cp.candidate_id = ce.candidate_id
-            LEFT JOIN candidate_education ced ON cp.candidate_id = ced.candidate_id
-            WHERE cp.candidate_id IN ({})
-            """.format(','.join(['%s'] * len(candidate_ids)))
+                # Then, fetch all data for those candidates
+                # Include a fixed value for position_similarity_score since we can't calculate it
+                placeholders = ','.join(['%s'] * len(candidate_ids))
+                query = f"""
+                SELECT 
+                    cp.candidate_id, cp.birthdate, ce.company, ce.company_industry, ce.position,
+                    ce.start_date, ce.end_date, ced.school, ced.degree, cp.firstname, cp.lastname,
+                    ced.university_rank, 0 AS position_similarity_score
+                FROM candidate_profiles cp
+                LEFT JOIN candidate_experiences ce ON cp.candidate_id = ce.candidate_id
+                LEFT JOIN candidate_education ced ON cp.candidate_id = ced.candidate_id
+                WHERE cp.candidate_id IN ({placeholders})
+                """
+                
+                self.cursor.execute(query, tuple(candidate_ids))
             
-            self.cursor.execute(query, tuple(candidate_ids))
+            # Fetch results
             results = self.cursor.fetchall()
             logger.debug(f"Fetched {len(results)} profiles for '{search_term}'")
             return results
-        except mysql.connector.Error as e:
-            logger.error(f"MySQL error fetching profiles: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error fetching profiles: {str(e)}")
             # Try to reconnect and retry
             self._get_connection()
             # We'd need to repeat the entire operation here
@@ -298,8 +214,13 @@ class LocalDatabase:
         """Close cursor and return connection to pool."""
         if self.cursor:
             self.cursor.close()
+        
         if self.conn:
-            self.conn.close()
+            if self.use_postgres:
+                self.pg_pool.putconn(self.conn)
+            else:
+                self.conn.close()
+        
         self.cursor = None
         self.conn = None
-        logger.info("Local database connection closed")
+        logger.info("Database connection closed")

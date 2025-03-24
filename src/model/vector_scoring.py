@@ -1,9 +1,9 @@
 from datetime import datetime, date
 import logging
 import re
-from transformers import pipeline, AutoTokenizer, AutoModelForTokenClassification
-from sentence_transformers import SentenceTransformer, util
 import numpy as np
+from transformers import pipeline
+from sentence_transformers import SentenceTransformer
 from src.utils.config import load_config
 
 logger = logging.getLogger(__name__)
@@ -11,12 +11,10 @@ logger = logging.getLogger(__name__)
 # Load models once at module level for efficiency
 try:
     # Initialize NER pipeline for Mongolian language
-    # Replace "monsoon-nlp/mongolian-bert-ner" with the appropriate model for your needs
-    tokenizer = AutoTokenizer.from_pretrained("monsoon-nlp/mongolian-bert-ner")
-    model = AutoModelForTokenClassification.from_pretrained("monsoon-nlp/mongolian-bert-ner")
-    ner_pipeline = pipeline("ner", model=model, tokenizer=tokenizer)
+    # Replace with appropriate model for your needs
+    ner_pipeline = pipeline("ner", model="monsoon-nlp/mongolian-bert-ner")
     
-    # Sentence transformer for similarity if needed (for fallback or validation)
+    # Sentence transformer for generating vectors
     # Use a multilingual model that supports Mongolian
     sentence_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
     
@@ -139,62 +137,32 @@ def extract_from_search_term(search_term):
     
     return job_title, industry, experience_years
 
-
-def calculate_position_similarity(candidate_position, search_position):
+def generate_search_embedding(text):
     """
-    Calculate similarity between candidate position and search position.
-    Uses cosine similarity of text embeddings if models are available,
-    otherwise falls back to string matching.
+    Generate vector embedding for search text.
     
     Args:
-        candidate_position (str): Candidate's position
-        search_position (str): Position from search query
+        text (str): Text to encode
         
     Returns:
-        float: Similarity score between 0 and 1
+        numpy.ndarray: Vector embedding or None if failed
     """
-    if not candidate_position or not search_position:
-        return 0
+    if not text or not sentence_model:
+        return None
     
-    # Convert to lowercase for better matching
-    candidate_position = candidate_position.lower()
-    search_position = search_position.lower()
-    
-    # Exact match gets highest score
-    if candidate_position == search_position:
-        return 1.0
-    
-    # Check if search position is contained in candidate position
-    if search_position in candidate_position or candidate_position in search_position:
-        return 0.9
-    
-    # Use sentence transformers for semantic similarity if available
-    if sentence_model:
-        try:
-            emb1 = sentence_model.encode(candidate_position, convert_to_tensor=True)
-            emb2 = sentence_model.encode(search_position, convert_to_tensor=True)
-            similarity = util.pytorch_cos_sim(emb1, emb2).item()
-            return max(0, min(similarity, 1.0))  # Ensure value is between 0 and 1
-        except Exception as e:
-            logger.warning(f"Semantic similarity calculation failed: {str(e)}")
-    
-    # Fallback to basic substring matching
-    words1 = set(candidate_position.split())
-    words2 = set(search_position.split())
-    
-    # Calculate Jaccard similarity between word sets
-    intersection = len(words1.intersection(words2))
-    union = len(words1.union(words2))
-    
-    return intersection / union if union > 0 else 0
+    try:
+        embedding = sentence_model.encode(text)
+        return embedding
+    except Exception as e:
+        logger.error(f"Failed to generate embedding: {str(e)}")
+        return None
 
-
-def calculate_score(profile, search_term):
+def calculate_vector_score(profile, search_term):
     """
-    Calculate candidate score based on school, experience, and industry match.
+    Calculate candidate score using vector similarity and other factors.
     
     Args:
-        profile (dict): Candidate profile with education and experience data
+        profile (dict): Candidate profile including position_similarity_score
         search_term (str): Search query
         
     Returns:
@@ -205,14 +173,30 @@ def calculate_score(profile, search_term):
         job_title, industry, experience_years = extract_from_search_term(search_term)
         logger.debug(f"Extracted: job={job_title}, industry={industry}, years={experience_years}")
         
-        # School (x): 1-4 from stored university_rank, default to 1 if None
-        # Higher rank means better university
+        # School ranking (x): 1-4, from stored university_rank
         x = profile.get("university_rank", 1) if profile.get("university_rank") is not None else 1
         
-        # Experience (y): Duration * Relevance, max 6
+        # Vector similarity score (vs): use stored position_similarity_score or calculate
+        # Assume the position_similarity_score is between 0-1
+        vs = profile.get("position_similarity_score", 0)
+        
+        if vs == 0 and sentence_model and "position" in profile:
+            # If similarity not provided but we have the model, calculate it
+            search_embedding = generate_search_embedding(job_title)
+            if search_embedding is not None and "position_vector" in profile:
+                position_vector = profile.get("position_vector")
+                # Calculate cosine similarity if we have both vectors
+                if position_vector is not None:
+                    vs = np.dot(search_embedding, position_vector) / (
+                        np.linalg.norm(search_embedding) * np.linalg.norm(position_vector)
+                    )
+                    vs = max(0, min(vs, 1))  # Ensure value is between 0 and 1
+        
+        # Experience duration (ed)
         start_date = profile.get("start_date")
         end_date = profile.get("end_date")
         
+        # Handle end_date properly
         if end_date is None or end_date == "Present":
             end_date = date.today()
         elif isinstance(end_date, str):
@@ -220,51 +204,50 @@ def calculate_score(profile, search_term):
                 end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
             except ValueError:
                 end_date = date.today()
-                
-        if start_date and isinstance(start_date, str):
+        
+        # Parse start_date if it's a string
+        if isinstance(start_date, str):
             try:
                 start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
             except ValueError:
                 start_date = None
         
-        y = 0
+        ed = 0
         if start_date and isinstance(start_date, date):
-            # Calculate experience duration in years, cap at 6 years
-            years = min((end_date - start_date).days / 365.25, 6)
+            # Calculate years of experience, cap at 5 years
+            years = min((end_date - start_date).days / 365.25, 5)
             
-            # Position relevance score (0-1)
-            relevance = calculate_position_similarity(profile.get("position", ""), job_title)
+            # Normalize to 0-1 scale
+            ed = years / 5
             
-            # Experience score = years * relevance (weighted)
-            # We only count experience if there's some relevance
-            if relevance > 0.6:  # Relevance threshold
-                y = years * relevance
-                
-                # If the candidate exceeds requested experience (if specified)
-                if experience_years and years >= experience_years:
-                    y += 0.5  # Bonus for meeting specific experience requirement
-            
-            y = min(y, 6)  # Cap at maximum 6 points
+            # Apply bonus if this meets the required experience
+            if experience_years and years >= experience_years:
+                ed += 0.2  # Bonus for meeting specific experience requirement
+                ed = min(ed, 1.0)  # Cap at 1
         
-        # Industry (z): 0-2, based on industry matching
-        z = 0
+        # Industry match (im)
+        im = 0
         if industry and profile.get("company_industry"):
             candidate_industry = profile.get("company_industry", "").lower()
             search_industry = industry.lower()
             
             # Exact industry match
             if search_industry in candidate_industry or candidate_industry in search_industry:
-                z = 2
+                im = 1.0
             # Partial industry match
             elif any(word in candidate_industry for word in search_industry.split()):
-                z = 1
+                im = 0.5
         
-        # Total: Normalize to 0-10 (max raw score = 12: 4 + 6 + 2)
-        total = (x + y + z) / 12 * 10
+        # Combine factors with appropriate weights
+        # School ranking: 20%, Vector similarity: 40%, Experience duration: 25%, Industry match: 15%
+        total = (0.2 * (x/4)) + (0.4 * vs) + (0.25 * ed) + (0.15 * im)
         
-        logger.debug(f"Score: {total:.2f} (x={x}, y={y}, z={z})")
-        return total
+        # Scale to 0-10
+        scaled_score = total * 10
+        
+        logger.debug(f"Vector score: {scaled_score:.2f} (x={x}, vs={vs:.2f}, ed={ed:.2f}, im={im:.2f})")
+        return scaled_score
     
     except Exception as e:
-        logger.error(f"Scoring failed: {str(e)}")
+        logger.error(f"Vector scoring failed: {str(e)}")
         return 0
