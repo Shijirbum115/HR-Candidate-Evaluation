@@ -1,8 +1,10 @@
+# Updated src/data/db_connect.py with recency filter capability
+
 import mysql.connector
 from mysql.connector import pooling
 import time
 import numpy as np
-from datetime import date
+from datetime import date, datetime, timedelta
 from src.utils.config import load_config
 from src.utils.logger import setup_logging
 from src.model.vector_scoring import generate_search_embedding
@@ -112,14 +114,44 @@ class LocalDatabase:
             self.close()
             self._get_connection()
 
-    def fetch_profiles(self, search_term):
-        """Fetch candidate profiles matching a search term with vector similarity if possible."""
+    def calculate_recency_date(self, months_ago):
+        """Calculate the date threshold for recency filter.
+        
+        Args:
+            months_ago (int): Number of months to look back
+            
+        Returns:
+            date: Date threshold
+        """
+        if not months_ago or months_ago <= 0:
+            # Default to 3 months if invalid
+            months_ago = 3
+            
+        today = date.today()
+        # Calculate date 'months_ago' months in the past
+        days_in_month = 30  # Approximate
+        days_ago = months_ago * days_in_month
+        return today - timedelta(days=days_ago)
+
+    def fetch_profiles(self, search_term, recency_months=3):
+        """Fetch candidate profiles matching a search term with recency filter.
+        
+        Args:
+            search_term (str): Search term to match
+            recency_months (int): Only fetch candidates active in the last N months
+            
+        Returns:
+            list: Matching profiles
+        """
         try:
             self._check_connection()
             
+            # Calculate recency date threshold
+            recency_date = self.calculate_recency_date(recency_months)
+            logger.info(f"Using recency filter: candidates active since {recency_date}")
+            
             if self.use_postgres:
-                # Vector-based search in PostgreSQL
-                # Generate embedding for search term
+                # Vector-based search in PostgreSQL with recency filter
                 search_embedding = generate_search_embedding(search_term)
                 
                 if search_embedding is not None:
@@ -141,55 +173,58 @@ class LocalDatabase:
                             ced.degree,
                             cp.firstname,
                             cp.lastname,
+                            cp.last_login_date,
                             ced.university_rank,
                             1 - (ce.position_vector <=> %s::vector) AS position_similarity_score
                         FROM candidate_profiles cp
                         JOIN candidate_experiences ce ON cp.candidate_id = ce.candidate_id
                         LEFT JOIN candidate_education ced ON cp.candidate_id = ced.candidate_id
                         WHERE ce.position_vector IS NOT NULL
+                        AND (cp.last_login_date IS NULL OR cp.last_login_date >= %s)
                         ORDER BY position_similarity_score DESC
                         LIMIT 50
                     )
                     SELECT * FROM ranked_experiences
                     """
-                    self.cursor.execute(query, (vector_str,))
+                    self.cursor.execute(query, (vector_str, recency_date))
                 else:
                     # Fallback to text search if embedding generation fails
                     query = """
                     SELECT 
                         cp.candidate_id, cp.birthdate, ce.company, ce.company_industry, ce.position,
                         ce.start_date, ce.end_date, ced.school, ced.degree, cp.firstname, cp.lastname,
-                        ced.university_rank, 0 AS position_similarity_score
+                        cp.last_login_date, ced.university_rank, 0 AS position_similarity_score
                     FROM candidate_profiles cp
                     LEFT JOIN candidate_experiences ce ON cp.candidate_id = ce.candidate_id
                     LEFT JOIN candidate_education ced ON cp.candidate_id = ced.candidate_id
-                    WHERE ce.position ILIKE %s OR ce.company_industry ILIKE %s
+                    WHERE (ce.position ILIKE %s OR ce.company_industry ILIKE %s)
+                    AND (cp.last_login_date IS NULL OR cp.last_login_date >= %s)
                     LIMIT 50
                     """
-                    self.cursor.execute(query, (f"%{search_term}%", f"%{search_term}%"))
+                    self.cursor.execute(query, (f"%{search_term}%", f"%{search_term}%", recency_date))
             else:
-                # MySQL text-based search
-                # First, get candidate IDs matching the search term
+                # MySQL text-based search with recency filter
+                # First, get candidate IDs matching the search term and recency
                 query_ids = """
                 SELECT DISTINCT cp.candidate_id
                 FROM candidate_profiles cp
                 LEFT JOIN candidate_experiences ce ON cp.candidate_id = ce.candidate_id
-                WHERE ce.position LIKE %s OR ce.company_industry LIKE %s
+                WHERE (ce.position LIKE %s OR ce.company_industry LIKE %s)
+                AND (cp.last_login_date IS NULL OR cp.last_login_date >= %s)
                 """
-                self.cursor.execute(query_ids, (f"%{search_term}%", f"%{search_term}%"))
+                self.cursor.execute(query_ids, (f"%{search_term}%", f"%{search_term}%", recency_date))
                 candidate_ids = [row[0] for row in self.cursor.fetchall()]
                 
                 if not candidate_ids:
                     return []
 
                 # Then, fetch all data for those candidates
-                # Include a fixed value for position_similarity_score since we can't calculate it
                 placeholders = ','.join(['%s'] * len(candidate_ids))
                 query = f"""
                 SELECT 
                     cp.candidate_id, cp.birthdate, ce.company, ce.company_industry, ce.position,
                     ce.start_date, ce.end_date, ced.school, ced.degree, cp.firstname, cp.lastname,
-                    ced.university_rank, 0 AS position_similarity_score
+                    cp.last_login_date, ced.university_rank, 0 AS position_similarity_score
                 FROM candidate_profiles cp
                 LEFT JOIN candidate_experiences ce ON cp.candidate_id = ce.candidate_id
                 LEFT JOIN candidate_education ced ON cp.candidate_id = ced.candidate_id
@@ -200,7 +235,7 @@ class LocalDatabase:
             
             # Fetch results
             results = self.cursor.fetchall()
-            logger.debug(f"Fetched {len(results)} profiles for '{search_term}'")
+            logger.debug(f"Fetched {len(results)} profiles for '{search_term}' with {recency_months} month recency filter")
             return results
         except Exception as e:
             logger.error(f"Error fetching profiles: {str(e)}")

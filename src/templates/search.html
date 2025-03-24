@@ -19,9 +19,9 @@
         #search-container {
             display: flex;
             gap: 10px;
-            margin-bottom: 30px;
+            margin-bottom: 15px;
             margin-top: 30px;
-            max-width: 600px;
+            max-width: 800px;
             width: 100%;
         }
         #search-input {
@@ -37,6 +37,38 @@
         }
         #search-input:focus {
             background-color: #4a4a4a;
+        }
+        .filter-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            max-width: 800px;
+            width: 100%;
+            justify-content: flex-end;
+        }
+        .filter-label {
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            color: #a0a0a0;
+        }
+        #recency-filter {
+            padding: 8px 12px;
+            font-size: 14px;
+            background-color: #3c3c3c;
+            color: #e0e0e0;
+            border: none;
+            border-radius: 5px;
+            outline: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #recency-filter:hover {
+            background-color: #4a4a4a;
+        }
+        #recency-filter option {
+            background-color: #2b2b2b;
+            color: #e0e0e0;
         }
         #search-button {
             padding: 12px 25px;
@@ -95,6 +127,16 @@
             margin: 5px 0;
             padding-left: 10px;
             border-left: 2px solid #5c5c5c;
+        }
+        .candidate-meta {
+            font-size: 13px;
+            color: #a0a0a0;
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+        .last-login {
+            font-style: italic;
         }
         .no-results {
             color: #e63946;
@@ -191,6 +233,17 @@
         <input type="text" id="search-input" placeholder="Search candidates (e.g., Борлуулагч, Дата аналист)">
         <button id="search-button" onclick="searchCandidates()">Search</button>
     </div>
+    
+    <div class="filter-container">
+        <div class="filter-label">Active candidates in the last:</div>
+        <select id="recency-filter">
+            <option value="1">1 month</option>
+            <option value="3" selected>3 months</option>
+            <option value="6">6 months</option>
+            <option value="12">1 year</option>
+        </select>
+    </div>
+    
     <div id="loading" class="loader"></div>
     <ul id="results"></ul>
 
@@ -205,11 +258,14 @@
                 return;
             }
 
+            // Get recency filter value
+            const recencyMonths = document.getElementById("recency-filter").value;
+            
             loadingIndicator.style.display = "block";
             resultsList.innerHTML = "";
 
             try {
-                const response = await fetch(`/candidates/${encodeURIComponent(searchTerm)}`);
+                const response = await fetch(`/candidates/${encodeURIComponent(searchTerm)}?recency=${recencyMonths}`);
                 const data = await response.json();
 
                 if (data.candidates.length === 0) {
@@ -242,6 +298,10 @@
                         html += `
                             <div class="education">
                                 <strong>Education:</strong> ${candidate.degree} from ${candidate.university} (Rank: ${candidate.university_rank})
+                            </div>
+                            
+                            <div class="candidate-meta">
+                                <span class="last-login">Last active: ${candidate.last_login_date || 'Unknown'}</span>
                             </div>
                         `;
 

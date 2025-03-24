@@ -1,135 +1,95 @@
 from datetime import datetime, date
 import logging
 import re
-from transformers import pipeline, AutoTokenizer, AutoModelForTokenClassification
+import traceback
+from typing import Tuple, Optional, Dict, Any, Union
 from sentence_transformers import SentenceTransformer, util
-import numpy as np
-from src.utils.config import load_config
 
 logger = logging.getLogger(__name__)
 
-# Load models once at module level for efficiency
+# Constants for scoring weights
+EDUCATION_WEIGHT = 0.20
+POSITION_WEIGHT = 0.40
+EXPERIENCE_WEIGHT = 0.25
+INDUSTRY_WEIGHT = 0.15
+
+# Constants for thresholds
+RELEVANCE_THRESHOLD = 0.6
+MAX_EXPERIENCE_YEARS = 6
+
+# Global variables for model instances
+sentence_model = None
+
 try:
-    # Initialize NER pipeline for Mongolian language
-    # Replace "monsoon-nlp/mongolian-bert-ner" with the appropriate model for your needs
-    tokenizer = AutoTokenizer.from_pretrained("monsoon-nlp/mongolian-bert-ner")
-    model = AutoModelForTokenClassification.from_pretrained("monsoon-nlp/mongolian-bert-ner")
-    ner_pipeline = pipeline("ner", model=model, tokenizer=tokenizer)
-    
-    # Sentence transformer for similarity if needed (for fallback or validation)
     # Use a multilingual model that supports Mongolian
     sentence_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-    
-    logger.info("NLP models loaded successfully")
+    logger.info("Sentence transformer model loaded successfully")
 except Exception as e:
-    logger.error(f"Error loading NLP models: {str(e)}")
-    # Fall back to simple regex-based extraction if models fail to load
-    ner_pipeline = None
+    logger.error(f"Error loading sentence transformer model: {str(e)}")
     sentence_model = None
 
-def extract_from_search_term(search_term):
+
+def extract_search_criteria(search_term: str) -> Tuple[str, Optional[str], Optional[int]]:
     """
-    Extract job title, industry and experience years from search term using
-    Hugging Face NER model or fallback to regex patterns.
+    Extract job title, industry and experience years from search term using regex patterns.
     
     Args:
-        search_term (str): The search query
+        search_term: The search query
         
     Returns:
-        tuple: (job_title, industry, experience_years)
+        Tuple containing: (job_title, industry, experience_years)
     """
+    if not search_term or not isinstance(search_term, str):
+        return search_term, None, None
+        
     # Default values
     job_title = search_term
     industry = None
     experience_years = None
     
-    # Try using the NER pipeline if available
-    if ner_pipeline:
-        try:
-            # Get NER results
-            ner_results = ner_pipeline(search_term)
-            
-            # Process NER results to extract entities
-            entities = {}
-            current_entity = None
-            current_text = ""
-            
-            for item in ner_results:
-                if item['entity'].startswith('B-'):  # Beginning of entity
-                    if current_entity:  # Save previous entity if exists
-                        entities[current_entity] = current_text.strip()
-                    current_entity = item['entity'][2:]  # Remove B- prefix
-                    current_text = item['word']
-                elif item['entity'].startswith('I-'):  # Inside of entity
-                    if current_entity == item['entity'][2:]:  # Same entity type
-                        current_text += " " + item['word']
-            
-            # Save the last entity
-            if current_entity:
-                entities[current_entity] = current_text.strip()
-            
-            # Map entities to our expected outputs
-            # Adjust these mappings based on your specific NER model's output labels
-            position_labels = ["POSITION", "JOB", "TITLE", "ROLE"]
-            industry_labels = ["INDUSTRY", "SECTOR", "FIELD"]
-            experience_labels = ["EXPERIENCE", "YEARS", "DURATION"]
-            
-            # Extract job title/position
-            for label in position_labels:
-                if label in entities:
-                    job_title = entities[label]
-                    break
-            
-            # Extract industry
-            for label in industry_labels:
-                if label in entities:
-                    industry = entities[label]
-                    break
-            
-            # Extract experience years
-            for label in experience_labels:
-                if label in entities:
-                    # Try to extract number from the text
-                    years_match = re.search(r'(\d+)', entities[label])
-                    if years_match:
-                        experience_years = int(years_match.group(1))
-                    break
-                    
-            logger.debug(f"NER extracted: job_title='{job_title}', industry='{industry}', experience_years={experience_years}")
-            
-        except Exception as e:
-            logger.warning(f"NER extraction failed: {str(e)}. Falling back to regex.")
+    # Experience years extraction patterns
+    years_patterns = [
+        r'(\d+)(?:\+)?\s*(?:жил|year|жилийн|түүнээс дээш жилийн|жилээс дээш)',
+        r'(\d+)\s*(?:yr|yrs|жил)',
+        r'experience\s*(?:of)?\s*(\d+)'
+    ]
     
-    # Fallback to regex patterns if NER failed or is unavailable
-    if not industry or not experience_years:
-        # Common patterns for extracting experience years
-        years_pattern = r'(\d+)(?:\+)?\s*(?:жил|year|жилийн|түүнээс дээш жилийн|жилээс дээш)'
-        years_match = re.search(years_pattern, search_term, re.IGNORECASE)
+    for pattern in years_patterns:
+        years_match = re.search(pattern, search_term, re.IGNORECASE)
         if years_match:
-            experience_years = int(years_match.group(1))
-        
-        # Extract industry based on common Mongolian industry terms
-        industry_patterns = {
-            'Санхүү': r'санхүү|finance|financial',
-            'IT': r'it|айти|информацийн технологи|software|программ',
-            'Маркетинг': r'маркетинг|marketing|зар сурталчилгаа',
-            'Хууль': r'хууль|legal|law|attorney',
-            'Боловсрол': r'боловсрол|education|training|сургалт',
-            'Эрүүл мэнд': r'эрүүл мэнд|health|medical|эмнэлэг'
-        }
-        
-        for ind_name, pattern in industry_patterns.items():
-            if re.search(pattern, search_term, re.IGNORECASE):
-                industry = ind_name
+            try:
+                experience_years = int(years_match.group(1))
                 break
+            except (ValueError, IndexError):
+                continue
     
-    # Extract job title if not found by NER
-    # Common job titles in Mongolian
+    # Industry extraction based on common terms
+    industry_patterns = {
+        'Санхүү': r'санхүү|finance|financial',
+        'IT': r'it|айти|информацийн технологи|software|программ',
+        'Маркетинг': r'маркетинг|marketing|зар сурталчилгаа',
+        'Хууль': r'хууль|legal|law|attorney',
+        'Боловсрол': r'боловсрол|education|training|сургалт',
+        'Эрүүл мэнд': r'эрүүл мэнд|health|medical|эмнэлэг',
+        'Худалдаа': r'худалдаа|sales|selling|retail',
+        'Үйлчилгээ': r'үйлчилгээ|service|customer',
+        'Барилга': r'барилга|construction|building',
+        'Тээвэр': r'тээвэр|transportation|logistics'
+    }
+    
+    for ind_name, pattern in industry_patterns.items():
+        if re.search(pattern, search_term, re.IGNORECASE):
+            industry = ind_name
+            break
+    
+    # Job title extraction based on common patterns
     job_patterns = {
         'Санхүүгийн менежер': r'санхүүгийн\s+менежер|finance\s+manager',
         'Нягтлан бодогч': r'нягтлан\s+бодогч|accountant',
         'Дата аналист': r'дата\s+аналист|өгөгдлийн\s+аналист|data\s+analyst',
-        'Программ хөгжүүлэгч': r'программ\s+хөгжүүлэгч|програм\s+хөгжүүлэгч|developer|программист'
+        'Программ хөгжүүлэгч': r'программ\s+хөгжүүлэгч|програм\s+хөгжүүлэгч|developer|программист',
+        'Борлуулагч': r'борлуулагч|худалдагч|sales|seller',
+        'Маркетингийн менежер': r'маркетингийн\s+менежер|marketing\s+manager'
     }
     
     for title, pattern in job_patterns.items():
@@ -137,134 +97,219 @@ def extract_from_search_term(search_term):
             job_title = title
             break
     
+    logger.debug(f"Extracted criteria: position='{job_title}', industry='{industry}', experience={experience_years} years")
     return job_title, industry, experience_years
 
 
-def calculate_position_similarity(candidate_position, search_position):
+def calculate_text_similarity(text1: str, text2: str) -> float:
     """
-    Calculate similarity between candidate position and search position.
-    Uses cosine similarity of text embeddings if models are available,
-    otherwise falls back to string matching.
+    Calculate semantic similarity between two text strings.
     
     Args:
-        candidate_position (str): Candidate's position
-        search_position (str): Position from search query
+        text1: First text string
+        text2: Second text string
         
     Returns:
-        float: Similarity score between 0 and 1
+        Similarity score between 0 and 1
     """
-    if not candidate_position or not search_position:
-        return 0
+    if not text1 or not text2 or not isinstance(text1, str) or not isinstance(text2, str):
+        return 0.0
     
-    # Convert to lowercase for better matching
-    candidate_position = candidate_position.lower()
-    search_position = search_position.lower()
+    # Clean and normalize texts
+    text1 = text1.lower().strip()
+    text2 = text2.lower().strip()
+    
+    if not text1 or not text2:
+        return 0.0
     
     # Exact match gets highest score
-    if candidate_position == search_position:
+    if text1 == text2:
         return 1.0
     
-    # Check if search position is contained in candidate position
-    if search_position in candidate_position or candidate_position in search_position:
+    # Check if one text is contained in the other
+    if text1 in text2 or text2 in text1:
         return 0.9
     
-    # Use sentence transformers for semantic similarity if available
+    # Try semantic similarity with sentence transformer
     if sentence_model:
         try:
-            emb1 = sentence_model.encode(candidate_position, convert_to_tensor=True)
-            emb2 = sentence_model.encode(search_position, convert_to_tensor=True)
-            similarity = util.pytorch_cos_sim(emb1, emb2).item()
-            return max(0, min(similarity, 1.0))  # Ensure value is between 0 and 1
+            embedding1 = sentence_model.encode(text1, convert_to_tensor=True)
+            embedding2 = sentence_model.encode(text2, convert_to_tensor=True)
+            similarity = util.pytorch_cos_sim(embedding1, embedding2).item()
+            return float(max(0.0, min(similarity, 1.0)))
         except Exception as e:
             logger.warning(f"Semantic similarity calculation failed: {str(e)}")
     
-    # Fallback to basic substring matching
-    words1 = set(candidate_position.split())
-    words2 = set(search_position.split())
+    # Fallback to Jaccard similarity (word overlap)
+    words1 = set(text1.split())
+    words2 = set(text2.split())
     
-    # Calculate Jaccard similarity between word sets
     intersection = len(words1.intersection(words2))
     union = len(words1.union(words2))
     
-    return intersection / union if union > 0 else 0
+    return intersection / union if union > 0 else 0.0
 
 
-def calculate_score(profile, search_term):
+def parse_date(date_value: Any) -> Optional[date]:
     """
-    Calculate candidate score based on school, experience, and industry match.
+    Parse various date formats into a date object.
     
     Args:
-        profile (dict): Candidate profile with education and experience data
-        search_term (str): Search query
+        date_value: Date in string, date, or datetime format
         
     Returns:
-        float: Score from 0 to 10
+        Parsed date or None if parsing fails
+    """
+    if date_value is None:
+        return None
+        
+    if isinstance(date_value, date):
+        return date_value
+        
+    if isinstance(date_value, str):
+        if date_value.lower() == "present":
+            return date.today()
+            
+        try:
+            return datetime.strptime(date_value, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+            
+        try:
+            return datetime.strptime(date_value, "%d-%m-%Y").date()
+        except ValueError:
+            pass
+            
+    return None
+
+
+def calculate_education_score(university_rank: Optional[int]) -> float:
+    """
+    Calculate education component score based on university ranking.
+    
+    Args:
+        university_rank: Rank value (1-4)
+        
+    Returns:
+        Normalized education score between 0 and 1
+    """
+    # Default to 1 if no rank is provided
+    if university_rank is None:
+        university_rank = 1
+        
+    # Ensure value is within range
+    rank = max(1, min(4, university_rank))
+    
+    # Normalize to 0-1 scale
+    return rank / 4.0
+
+
+def calculate_experience_score(
+    start_date: Any, 
+    end_date: Any, 
+    position_relevance: float,
+    required_years: Optional[int]
+) -> float:
+    """
+    Calculate experience component score based on duration and relevance.
+    
+    Args:
+        start_date: Experience start date
+        end_date: Experience end date or "Present"
+        position_relevance: Relevance score (0-1) of position to search term
+        required_years: Required years of experience (optional)
+        
+    Returns:
+        Experience score between 0 and 1
+    """
+    # Parse dates
+    parsed_start = parse_date(start_date)
+    parsed_end = parse_date(end_date) or date.today()
+    
+    if not parsed_start:
+        return 0.0
+    
+    # Calculate years of experience, capped at MAX_EXPERIENCE_YEARS
+    years_of_experience = (parsed_end - parsed_start).days / 365.25
+    capped_years = min(years_of_experience, MAX_EXPERIENCE_YEARS)
+    
+    # Only count experience if position is relevant enough
+    if position_relevance < RELEVANCE_THRESHOLD:
+        return 0.0
+    
+    # Normalize to 0-1 scale
+    experience_score = capped_years / MAX_EXPERIENCE_YEARS
+    
+    # Add bonus if meeting specific experience requirements
+    if required_years and years_of_experience >= required_years:
+        experience_score = min(experience_score + 0.2, 1.0)
+    
+    return experience_score
+
+
+def calculate_score(profile: Dict[str, Any], search_term: str) -> float:
+    """
+    Calculate candidate score based on education, experience, and industry relevance.
+    
+    Args:
+        profile: Candidate profile with education and experience data
+        search_term: Search query
+        
+    Returns:
+        Score from 0 to 10
     """
     try:
-        # Extract components from search term
-        job_title, industry, experience_years = extract_from_search_term(search_term)
-        logger.debug(f"Extracted: job={job_title}, industry={industry}, years={experience_years}")
+        # Extract search criteria
+        position_title, industry, required_years = extract_search_criteria(search_term)
         
-        # School (x): 1-4 from stored university_rank, default to 1 if None
-        # Higher rank means better university
-        x = profile.get("university_rank", 1) if profile.get("university_rank") is not None else 1
+        # Calculate education score (0-1)
+        education_score = calculate_education_score(profile.get("university_rank"))
         
-        # Experience (y): Duration * Relevance, max 6
-        start_date = profile.get("start_date")
-        end_date = profile.get("end_date")
+        # Calculate position similarity (0-1)
+        position_similarity = calculate_text_similarity(
+            profile.get("position", ""), 
+            position_title
+        )
         
-        if end_date is None or end_date == "Present":
-            end_date = date.today()
-        elif isinstance(end_date, str):
-            try:
-                end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
-            except ValueError:
-                end_date = date.today()
-                
-        if start_date and isinstance(start_date, str):
-            try:
-                start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
-            except ValueError:
-                start_date = None
+        # Calculate experience score (0-1)
+        experience_score = calculate_experience_score(
+            profile.get("start_date"),
+            profile.get("end_date"),
+            position_similarity,
+            required_years
+        )
         
-        y = 0
-        if start_date and isinstance(start_date, date):
-            # Calculate experience duration in years, cap at 6 years
-            years = min((end_date - start_date).days / 365.25, 6)
-            
-            # Position relevance score (0-1)
-            relevance = calculate_position_similarity(profile.get("position", ""), job_title)
-            
-            # Experience score = years * relevance (weighted)
-            # We only count experience if there's some relevance
-            if relevance > 0.6:  # Relevance threshold
-                y = years * relevance
-                
-                # If the candidate exceeds requested experience (if specified)
-                if experience_years and years >= experience_years:
-                    y += 0.5  # Bonus for meeting specific experience requirement
-            
-            y = min(y, 6)  # Cap at maximum 6 points
-        
-        # Industry (z): 0-2, based on industry matching
-        z = 0
+        # Calculate industry match score (0-1)
+        industry_score = 0.0
         if industry and profile.get("company_industry"):
             candidate_industry = profile.get("company_industry", "").lower()
             search_industry = industry.lower()
             
-            # Exact industry match
-            if search_industry in candidate_industry or candidate_industry in search_industry:
-                z = 2
-            # Partial industry match
-            elif any(word in candidate_industry for word in search_industry.split()):
-                z = 1
+            # Calculate industry similarity
+            industry_score = calculate_text_similarity(candidate_industry, search_industry)
         
-        # Total: Normalize to 0-10 (max raw score = 12: 4 + 6 + 2)
-        total = (x + y + z) / 12 * 10
+        # Calculate weighted total score
+        weighted_score = (
+            EDUCATION_WEIGHT * education_score +
+            POSITION_WEIGHT * position_similarity +
+            EXPERIENCE_WEIGHT * experience_score +
+            INDUSTRY_WEIGHT * industry_score
+        )
         
-        logger.debug(f"Score: {total:.2f} (x={x}, y={y}, z={z})")
-        return total
-    
+        # Scale to 0-10 range
+        final_score = weighted_score * 10.0
+        
+        logger.debug(
+            f"Score components: education={education_score:.2f}, "
+            f"position={position_similarity:.2f}, "
+            f"experience={experience_score:.2f}, "
+            f"industry={industry_score:.2f}, "
+            f"final={final_score:.2f}"
+        )
+        
+        return float(final_score)
+        
     except Exception as e:
-        logger.error(f"Scoring failed: {str(e)}")
-        return 0
+        logger.error(f"Scoring calculation failed: {str(e)}")
+        logger.debug(traceback.format_exc())
+        return 0.0
