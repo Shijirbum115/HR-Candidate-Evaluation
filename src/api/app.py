@@ -1,4 +1,4 @@
-# Updated src/api/app.py with proper JSON serialization
+# Updated src/api/app.py
 
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import HTMLResponse
@@ -7,39 +7,10 @@ from src.data.db_connect import LocalDatabase
 from src.model.scoring import calculate_score
 import logging
 from typing import Optional
-import numpy as np
-import json
 
 logger = logging.getLogger(__name__)
 app = FastAPI(title="HR Candidate Evaluation API")
 templates = Jinja2Templates(directory="src/templates")
-
-# Custom JSON encoder to handle numpy types
-class NumpyEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super(NumpyEncoder, self).default(obj)
-
-def convert_to_serializable(obj):
-    """Convert any numpy or non-serializable types to Python standard types."""
-    if isinstance(obj, np.integer):
-        return int(obj)
-    elif isinstance(obj, np.floating):
-        return float(obj)
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    elif isinstance(obj, dict):
-        return {k: convert_to_serializable(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [convert_to_serializable(i) for i in obj]
-    elif isinstance(obj, tuple):
-        return tuple(convert_to_serializable(i) for i in obj)
-    return obj
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
@@ -94,8 +65,7 @@ async def get_candidates(
                         "end_date": str(p[6]) if p[6] else "Present",
                     }
                     score = calculate_score({**candidates[candidate_id]["education"], **exp}, search_term)
-                    # Convert score to Python float to ensure it's serializable
-                    exp["score"] = round(float(score), 2)
+                    exp["score"] = round(score, 2)
                     candidates[candidate_id]["experiences"][exp_key] = exp
 
         # Convert experiences dict to list and rank candidates
@@ -104,22 +74,14 @@ async def get_candidates(
             candidate["experiences"] = list(candidate["experiences"].values())
             ranked_candidates.append(candidate)
         
-        # Calculate max score, ensuring it's a Python float
-        def get_max_score(candidate):
-            scores = [float(e["score"]) for e in candidate["experiences"]]
-            return max(scores) if scores else 0
-            
         ranked_candidates = sorted(
             ranked_candidates,
-            key=lambda x: get_max_score(x),
+            key=lambda x: max((e["score"] for e in x["experiences"]), default=0),
             reverse=True
         )[:10]
         
         result = []
         for rank, candidate in enumerate(ranked_candidates, 1):
-            # Calculate top score, ensuring it's a Python float
-            top_score = max((float(e["score"]) for e in candidate["experiences"]), default=0)
-            
             result.append({
                 "rank": rank,
                 "name": f"{candidate['firstname']} {candidate['lastname']}",
@@ -129,14 +91,11 @@ async def get_candidates(
                 "university": candidate["education"]["university"],
                 "university_rank": candidate["education"]["university_rank"],
                 "degree": candidate["education"]["degree"],
-                "top_score": top_score
+                "top_score": max((e["score"] for e in candidate["experiences"]), default=0)
             })
 
         logger.info(f"Returned {len(result)} candidates for '{search_term}' with {recency} month recency filter")
-        
-        # Convert any non-serializable objects to standard Python types
-        serializable_result = convert_to_serializable({"candidates": result})
-        return serializable_result
+        return {"candidates": result}
     except Exception as e:
         logger.error(f"API request failed: {str(e)}")
         raise
