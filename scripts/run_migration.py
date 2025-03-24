@@ -12,13 +12,7 @@ from migration.standardization import standardize_university, standardize_positi
 from migration.clustering import build_university_clusters
 from migration.vectors import load_embedding_model, generate_embedding
 from migration.utils import StandardizationCache, validate_date, extract_year
-import os
-import sys
-# Add the project root to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 from src.utils.config import load_config
-from src.utils.logger import setup_logging
 logger = setup_logging()
 logger.setLevel(logging.INFO)
 
