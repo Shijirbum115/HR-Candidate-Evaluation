@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request, Query
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from src.data.db_connect import LocalDatabase
-from src.model.scoring import calculate_score
+from src.model.vector_scoring import calculate_vector_score
 import logging
 from typing import Optional
 
@@ -64,7 +64,7 @@ async def get_candidates(
                         "start_date": str(p[5]) if p[5] else "Unknown",
                         "end_date": str(p[6]) if p[6] else "Present",
                     }
-                    score = calculate_score({**candidates[candidate_id]["education"], **exp}, search_term)
+                    score = calculate_vector_score({**candidates[candidate_id]["education"], **exp}, search_term)
                     exp["score"] = round(score, 2)
                     candidates[candidate_id]["experiences"][exp_key] = exp
 
