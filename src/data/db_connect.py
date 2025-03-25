@@ -7,7 +7,7 @@ import numpy as np
 from datetime import date, datetime, timedelta
 from src.utils.config import load_config
 from src.utils.logger import setup_logging
-from src.model.vector_scoring import generate_search_embedding
+from src.model.vector_scoring import generate_search_embedding, extract_from_search_term
 
 logger = setup_logging()
 
@@ -150,17 +150,33 @@ class LocalDatabase:
             recency_date = self.calculate_recency_date(recency_months)
             logger.info(f"Using recency filter: candidates active since {recency_date}")
             
+            # Extract search terms for improved matching
+            job_title, industry, experience_years = extract_from_search_term(search_term)
+            
             if self.use_postgres:
                 # Vector-based search in PostgreSQL with recency filter
                 search_embedding = generate_search_embedding(search_term)
                 
                 if search_embedding is not None:
-                    # Convert numpy array to list for PostgreSQL
-                    vector_str = ','.join(str(x) for x in search_embedding)
+                    expected_dim = 1536
+                    if len(search_embedding) < expected_dim:
+                        # Pad the vector by repeating it
+                        repeat_count = expected_dim // len(search_embedding)
+                        remainder = expected_dim % len(search_embedding)
+                        
+                        # Create padded vector
+                        padded_embedding = np.tile(search_embedding, repeat_count)
+                        if remainder > 0:
+                            padded_embedding = np.concatenate([padded_embedding, search_embedding[:remainder]])
+                        
+                        search_embedding = padded_embedding
                     
-                    # Use pgvector's cosine distance operator (<=>)
+                    # Convert numpy array to list for PostgreSQL
+                    vector_str = '[' + ','.join(str(x) for x in search_embedding) + ']'
+                    
+                    # More effective query that combines vector search with text search
                     query = """
-                    WITH ranked_experiences AS (
+                    WITH experience_data AS (
                         SELECT 
                             cp.candidate_id, 
                             cp.birthdate,
@@ -175,33 +191,99 @@ class LocalDatabase:
                             cp.lastname,
                             cp.last_login_date,
                             ced.university_rank,
-                            1 - (ce.position_vector <=> %s::vector) AS position_similarity_score
+                            ce.position_vector,
+                            -- Calculate both vector similarity and text matching scores
+                            1 - (ce.position_vector <=> %s::vector) AS vector_score,
+                            CASE 
+                                WHEN LOWER(ce.position) = LOWER(%s) THEN 1.0  -- Exact match
+                                WHEN LOWER(ce.position) LIKE '%%' || LOWER(%s) || '%%' THEN 0.8  -- Contains
+                                WHEN LOWER(%s) LIKE '%%' || LOWER(ce.position) || '%%' THEN 0.7  -- Is contained in
+                                ELSE 0.0
+                            END AS text_score,
+                            -- Calculate years of experience
+                            CASE 
+                                WHEN ce.start_date IS NOT NULL THEN
+                                    EXTRACT(YEAR FROM AGE(COALESCE(ce.end_date, CURRENT_DATE), ce.start_date))
+                                ELSE 0
+                            END AS years_experience
                         FROM candidate_profiles cp
                         JOIN candidate_experiences ce ON cp.candidate_id = ce.candidate_id
                         LEFT JOIN candidate_education ced ON cp.candidate_id = ced.candidate_id
-                        WHERE ce.position_vector IS NOT NULL
-                        AND (cp.last_login_date IS NULL OR cp.last_login_date >= %s)
-                        ORDER BY position_similarity_score DESC
-                        LIMIT 50
+                        WHERE (cp.last_login_date IS NULL OR cp.last_login_date >= %s)
+                        -- Include both vector matches and text matches
+                        AND (
+                            ce.position_vector IS NOT NULL
+                            OR LOWER(ce.position) LIKE '%%' || LOWER(%s) || '%%'
+                            OR LOWER(ce.company_industry) LIKE '%%' || LOWER(%s) || '%%'
+                        )
                     )
-                    SELECT * FROM ranked_experiences
+                    SELECT 
+                        *,
+                        -- Combined score (max of vector and text score)
+                        GREATEST(vector_score, text_score) AS position_similarity_score
+                    FROM experience_data
+                    ORDER BY 
+                        position_similarity_score DESC,
+                        years_experience DESC
+                    LIMIT 100
                     """
-                    self.cursor.execute(query, (vector_str, recency_date))
+                    # Execute with both vector and text parameters
+                    self.cursor.execute(query, (
+                        vector_str,    # For vector search
+                        job_title,     # For exact text match
+                        job_title,     # For contains text match
+                        job_title,     # For is contained in match
+                        recency_date,  # For recency filter
+                        job_title,     # For fallback text search
+                        industry if industry else ""  # For industry text search
+                    ))
+                    
+                    # Log the first few rows to verify query effectiveness
+                    sample_results = self.cursor.fetchmany(3)
+                    if sample_results:
+                        logger.debug(f"Sample query results:")
+                        for row in sample_results:
+                            logger.debug(f"Candidate ID: {row[0]}, Position: {row[4]}, Vector score: {row[14]:.2f}, Text score: {row[15]:.2f}, Combined: {row[17]:.2f}")
+                        
+                        # Re-execute to get all results
+                        self.cursor.execute(query, (
+                            vector_str, job_title, job_title, job_title, recency_date, job_title, industry if industry else ""
+                        ))
+                    
+                    logger.debug(f"Executed vector query with {len(search_embedding)}-dimensional vector")
                 else:
                     # Fallback to text search if embedding generation fails
                     query = """
                     SELECT 
                         cp.candidate_id, cp.birthdate, ce.company, ce.company_industry, ce.position,
                         ce.start_date, ce.end_date, ced.school, ced.degree, cp.firstname, cp.lastname,
-                        cp.last_login_date, ced.university_rank, 0 AS position_similarity_score
+                        cp.last_login_date, ced.university_rank, NULL as position_vector, 0 AS vector_score,
+                        CASE 
+                            WHEN LOWER(ce.position) = LOWER(%s) THEN 1.0  -- Exact match
+                            WHEN LOWER(ce.position) LIKE '%%' || LOWER(%s) || '%%' THEN 0.8  -- Contains
+                            WHEN LOWER(%s) LIKE '%%' || LOWER(ce.position) || '%%' THEN 0.7  -- Is contained in
+                            ELSE 0.0
+                        END AS text_score,
+                        0 as years_experience,
+                        CASE 
+                            WHEN LOWER(ce.position) = LOWER(%s) THEN 1.0  -- Exact match
+                            WHEN LOWER(ce.position) LIKE '%%' || LOWER(%s) || '%%' THEN 0.8  -- Contains
+                            WHEN LOWER(%s) LIKE '%%' || LOWER(ce.position) || '%%' THEN 0.7  -- Is contained in
+                            ELSE 0.0
+                        END AS position_similarity_score
                     FROM candidate_profiles cp
                     LEFT JOIN candidate_experiences ce ON cp.candidate_id = ce.candidate_id
                     LEFT JOIN candidate_education ced ON cp.candidate_id = ced.candidate_id
-                    WHERE (ce.position ILIKE %s OR ce.company_industry ILIKE %s)
+                    WHERE (ce.position ILIKE '%%' || %s || '%%' OR ce.company_industry ILIKE '%%' || %s || '%%')
                     AND (cp.last_login_date IS NULL OR cp.last_login_date >= %s)
-                    LIMIT 50
+                    ORDER BY position_similarity_score DESC
+                    LIMIT 100
                     """
-                    self.cursor.execute(query, (f"%{search_term}%", f"%{search_term}%", recency_date))
+                    self.cursor.execute(query, (
+                        job_title, job_title, job_title, 
+                        job_title, job_title, job_title,
+                        job_title, industry if industry else "", recency_date
+                    ))
             else:
                 # MySQL text-based search with recency filter
                 # First, get candidate IDs matching the search term and recency
@@ -212,7 +294,7 @@ class LocalDatabase:
                 WHERE (ce.position LIKE %s OR ce.company_industry LIKE %s)
                 AND (cp.last_login_date IS NULL OR cp.last_login_date >= %s)
                 """
-                self.cursor.execute(query_ids, (f"%{search_term}%", f"%{search_term}%", recency_date))
+                self.cursor.execute(query_ids, (f"%{job_title}%", f"%{industry if industry else ''}%", recency_date))
                 candidate_ids = [row[0] for row in self.cursor.fetchall()]
                 
                 if not candidate_ids:
@@ -224,17 +306,41 @@ class LocalDatabase:
                 SELECT 
                     cp.candidate_id, cp.birthdate, ce.company, ce.company_industry, ce.position,
                     ce.start_date, ce.end_date, ced.school, ced.degree, cp.firstname, cp.lastname,
-                    cp.last_login_date, ced.university_rank, 0 AS position_similarity_score
+                    cp.last_login_date, ced.university_rank, NULL as position_vector, 0 AS vector_score,
+                    CASE 
+                        WHEN LOWER(ce.position) = LOWER(%s) THEN 1.0
+                        WHEN LOWER(ce.position) LIKE CONCAT('%%', LOWER(%s), '%%') THEN 0.8
+                        WHEN LOWER(%s) LIKE CONCAT('%%', LOWER(ce.position), '%%') THEN 0.7
+                        ELSE 0.0
+                    END AS text_score,
+                    CASE 
+                        WHEN ce.start_date IS NOT NULL THEN
+                            TIMESTAMPDIFF(YEAR, ce.start_date, COALESCE(ce.end_date, CURDATE()))
+                        ELSE 0
+                    END AS years_experience,
+                    CASE 
+                        WHEN LOWER(ce.position) = LOWER(%s) THEN 1.0
+                        WHEN LOWER(ce.position) LIKE CONCAT('%%', LOWER(%s), '%%') THEN 0.8
+                        WHEN LOWER(%s) LIKE CONCAT('%%', LOWER(ce.position), '%%') THEN 0.7
+                        ELSE 0.0
+                    END AS position_similarity_score
                 FROM candidate_profiles cp
                 LEFT JOIN candidate_experiences ce ON cp.candidate_id = ce.candidate_id
                 LEFT JOIN candidate_education ced ON cp.candidate_id = ced.candidate_id
                 WHERE cp.candidate_id IN ({placeholders})
+                ORDER BY position_similarity_score DESC, years_experience DESC
                 """
                 
-                self.cursor.execute(query, tuple(candidate_ids))
+                params = (job_title, job_title, job_title, job_title, job_title, job_title) + tuple(candidate_ids)
+                self.cursor.execute(query, params)
             
             # Fetch results
             results = self.cursor.fetchall()
+            # Log a sample result to debug vector format
+            if results and len(results) > 0:
+                sample = results[0]
+                logger.debug(f"Sample result structure: {sample[:13]} + vector data + similarity scores")
+                
             logger.debug(f"Fetched {len(results)} profiles for '{search_term}' with {recency_months} month recency filter")
             return results
         except Exception as e:

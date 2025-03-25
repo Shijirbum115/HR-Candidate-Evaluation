@@ -22,4 +22,17 @@ def setup_logging():
     file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     logger.addHandler(file_handler)
 
+    # Configure the root logger as well to catch all logs
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    
+    # Only add handlers if they don't exist
+    has_console = any(isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler) 
+                     for h in root_logger.handlers)
+    if not has_console:
+        root_console = logging.StreamHandler()
+        root_console.setLevel(logging.DEBUG)
+        root_console.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        root_logger.addHandler(root_console)
+
     return logger
