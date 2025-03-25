@@ -285,14 +285,26 @@ def calculate_vector_score(profile, job_title, industry, experience_years):
             candidate_industry = profile.get("company_industry", "").lower()
             search_industry = industry.lower()
             
-            # Exact industry match
+            # FIX: Improved industry matching with better logging
+            # Log the industry values we're comparing to help debug
+            logger.debug(f"Comparing industries: search='{search_industry}' vs candidate='{candidate_industry}'")
+            
+            # Check for exact or partial industry match
             if search_industry in candidate_industry or candidate_industry in search_industry:
                 im = 1.0
                 logger.debug(f"Exact industry match: '{search_industry}' and '{candidate_industry}'")
-            # Partial industry match
-            elif any(word in candidate_industry for word in search_industry.split()):
+            elif any(word in candidate_industry for word in search_industry.split() if len(word) > 3):
+                # Only match on words longer than 3 chars to avoid matching on common words
                 im = 0.5
                 logger.debug(f"Partial industry match: '{search_industry}' and '{candidate_industry}'")
+            else:
+                logger.debug(f"No industry match between '{search_industry}' and '{candidate_industry}'")
+        else:
+            # Log when we don't have industry information to match
+            if not industry:
+                logger.debug("No industry specified in search term")
+            if not profile.get("company_industry"):
+                logger.debug("No company_industry in candidate profile")
         
         # Combine factors with appropriate weights
         # Position: 45%, Experience: 35%, Industry: 15%, University: 5%
@@ -301,7 +313,7 @@ def calculate_vector_score(profile, job_title, industry, experience_years):
         # Scale to 0-10
         scaled_score = total * 10
         
-        logger.debug(f"Vector score: {scaled_score:.2f} (x={x}, vs={vs:.2f}, ed={ed:.2f}, im={im:.2f})")
+        logger.debug(f"Vector score: {scaled_score:.2f} (x={x:.2f}, vs={vs:.2f}, ed={ed:.2f}, im={im:.2f})")
         return scaled_score
     
     except Exception as e:
