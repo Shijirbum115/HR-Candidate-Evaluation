@@ -1,10 +1,11 @@
-# Updated src/data/db_connect.py with recency filter capability
+# Updated src/data/db_connect.py with improved recency filter capability
 
 import mysql.connector
 from mysql.connector import pooling
 import time
 import numpy as np
 from datetime import date, datetime, timedelta
+import logging
 from src.utils.config import load_config
 from src.utils.logger import setup_logging
 from src.model.vector_scoring import generate_search_embedding, extract_from_search_term
@@ -123,15 +124,49 @@ class LocalDatabase:
         Returns:
             date: Date threshold
         """
+        logger.debug(f"Calculating recency date for {months_ago} months ago")
+        
         if not months_ago or months_ago <= 0:
             # Default to 3 months if invalid
             months_ago = 3
+            logger.warning(f"Invalid recency value, defaulting to {months_ago} months")
+        
+        try:
+            # Convert months_ago to integer to ensure proper handling
+            months_ago = int(months_ago)
             
-        today = date.today()
-        # Calculate date 'months_ago' months in the past
-        days_in_month = 30  # Approximate
-        days_ago = months_ago * days_in_month
-        return today - timedelta(days=days_ago)
+            today = date.today()
+            logger.debug(f"Today's date: {today}")
+            
+            # More accurate method to calculate months ago
+            # This handles varying month lengths more precisely
+            year = today.year
+            month = today.month - months_ago
+            
+            # Handle year boundary crossing
+            while month <= 0:
+                year -= 1
+                month += 12
+            
+            # Get the correct day, handling month length issues
+            # e.g., if today is March 31 and we go back 1 month, we should get Feb 28/29
+            month_days = [31, 
+                          29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 
+                          31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            day = min(today.day, month_days[month-1])
+            
+            threshold_date = date(year, month, day)
+            logger.debug(f"Calculated recency threshold: {threshold_date} ({months_ago} months before today)")
+            
+            return threshold_date
+        except Exception as e:
+            logger.error(f"Error calculating recency date: {str(e)}")
+            # Fallback to simple approximation if the precise calculation fails
+            today = date.today()
+            days_ago = months_ago * 30
+            fallback_date = today - timedelta(days=days_ago)
+            logger.debug(f"Fallback recency threshold: {fallback_date}")
+            return fallback_date
 
     def fetch_profiles(self, search_term, recency_months=3):
         """Fetch candidate profiles matching a search term with recency filter.
@@ -146,14 +181,31 @@ class LocalDatabase:
         try:
             self._check_connection()
             
+            # Convert recency_months to int to ensure proper handling
+            try:
+                recency_months = int(recency_months)
+            except (TypeError, ValueError):
+                recency_months = 3
+                logger.warning(f"Invalid recency_months value, defaulting to {recency_months}")
+            
             # Calculate recency date threshold
             recency_date = self.calculate_recency_date(recency_months)
-            logger.info(f"Using recency filter: candidates active since {recency_date}")
+            
+            logger.info(f"Using recency filter: candidates active since {recency_date} ({recency_months} months)")
             
             # Extract search terms for improved matching
             job_title, industry, experience_years = extract_from_search_term(search_term)
             
             if self.use_postgres:
+                # Diagnostic query to check how many candidates match just the date filter
+                diagnostic_query = """
+                SELECT COUNT(*) FROM candidate_profiles
+                WHERE (last_login_date IS NULL OR last_login_date >= %s)
+                """
+                self.cursor.execute(diagnostic_query, (recency_date,))
+                candidate_count = self.cursor.fetchone()[0]
+                logger.debug(f"Recency filter ({recency_months} months): {candidate_count} candidates match the date criteria")
+                
                 # Vector-based search in PostgreSQL with recency filter
                 search_embedding = generate_search_embedding(search_term)
                 
@@ -243,7 +295,7 @@ class LocalDatabase:
                     if sample_results:
                         logger.debug(f"Sample query results:")
                         for row in sample_results:
-                            logger.debug(f"Candidate ID: {row[0]}, Position: {row[4]}, Vector score: {row[14]:.2f}, Text score: {row[15]:.2f}, Combined: {row[17]:.2f}")
+                            logger.debug(f"Candidate ID: {row[0]}, Position: {row[4]}, Last Login: {row[11]}, Vector score: {row[14]:.2f}, Text score: {row[15]:.2f}, Combined: {row[17]:.2f}")
                         
                         # Re-execute to get all results
                         self.cursor.execute(query, (
@@ -297,6 +349,8 @@ class LocalDatabase:
                 self.cursor.execute(query_ids, (f"%{job_title}%", f"%{industry if industry else ''}%", recency_date))
                 candidate_ids = [row[0] for row in self.cursor.fetchall()]
                 
+                logger.debug(f"Found {len(candidate_ids)} candidate IDs matching search and recency criteria")
+                
                 if not candidate_ids:
                     return []
 
@@ -340,8 +394,8 @@ class LocalDatabase:
             if results and len(results) > 0:
                 sample = results[0]
                 logger.debug(f"Sample result structure: {sample[:13]} + vector data + similarity scores")
+                logger.debug(f"Total results found: {len(results)}")
                 
-            logger.debug(f"Fetched {len(results)} profiles for '{search_term}' with {recency_months} month recency filter")
             return results
         except Exception as e:
             logger.error(f"Error fetching profiles: {str(e)}")

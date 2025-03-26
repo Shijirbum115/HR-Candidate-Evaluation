@@ -1,12 +1,87 @@
-name: CI
-on: [push, pull_request]
+name: CI/CD Pipeline
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - run: pip install -e ".[dev]"
-      - run: flake8 src/
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run flake8
+        run: flake8 src/
+      - name: Run black check
+        run: black --check src/
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run tests
+        run: pytest tests/
+        env:
+          # Use mock credentials for testing
+          CLOUD_DB_HOST: localhost
+          CLOUD_DB_USER: test
+          CLOUD_DB_PASSWORD: test
+          CLOUD_DB_NAME: test
+          LOCAL_DB_HOST: localhost
+          LOCAL_DB_USER: test
+          LOCAL_DB_PASSWORD: test
+          LOCAL_DB_NAME: test
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install safety bandit
+      - name: Check dependencies for security vulnerabilities
+        run: safety check
+      - name: Run bandit for security issues
+        run: bandit -r src/ -ll
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install mkdocs mkdocs-material
+      - name: Build documentation
+        run: mkdocs build
+      - name: Upload documentation artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: documentation
+          path: site/

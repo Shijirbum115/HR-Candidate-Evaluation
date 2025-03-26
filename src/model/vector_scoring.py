@@ -127,12 +127,24 @@ def extract_from_search_term(search_term):
         
         # Extract industry based on common Mongolian industry terms
         industry_patterns = {
-            'Санхүү': r'санхүү|finance|financial|санхүүгийн салбар',
-            'IT': r'it|айти|информацийн технологи|software|программ',
-            'Маркетинг': r'маркетинг|marketing|зар сурталчилгаа',
-            'Хууль': r'хууль|legal|law|attorney',
-            'Боловсрол': r'боловсрол|education|training|сургалт',
-            'Эрүүл мэнд': r'эрүүл мэнд|health|medical|эмнэлэг'
+            'Санхүү/Бүртгэл': r'санхүү|санхүүгийн|санхүүгийн салбар|бүртгэл|нягтлан|нягтлан бодох бүртгэл|аудит|татвар|finance|financial|accounting|audit|tax',
+            'IT/Мэдээллийн технологи/Програм хангамж': r'it|айти|информацийн технологи|мэдээллийн технологи|программ|програм хангамж|код|программист|developer|software|hardware|network|програмчлал|вэб хөгжүүлэлт|кибер аюулгүй байдал|систем админ',
+            'Маркетинг': r'маркетинг|маркетингийн|зар сурталчилгаа|борлуулалт|сурталчилгаа|реклам|брэндинг|брэнд|борлуулалтын стратеги|marketing|advertising|branding|sales',
+            'Хууль, эрх зүй/Нийцэл': r'хууль|эрх зүй|хуульч|өмгөөлөгч|хуульчлах|эрх зүйн зөвлөх|нотариат|нийцэл|комплаенс|compliance|legal|law|attorney|lawyer|jurisprudence|notary',
+            'Боловсрол': r'боловсрол|сургалт|багш|сурган хүмүүжүүлэгч|их сургууль|сургууль|коллеж|эрдэм шинжилгээ|академик|education|training|teaching|research|university|school',
+            'Эрүүл мэнд': r'эрүүл мэнд|эмнэлэг|анагаах|анагаах ухаан|эмч|сувилагч|эмчилгээ|хоол судлал|фитнес|эрүүл амьдрал|health|medical|medicine|doctor|nurse|treatment|nutrition|fitness',
+            'Инженер техник/Инженеринг': r'инженер|инженерийн|техник|механик|цахилгаан|автоматжуулалт|барилга|дэд бүтэц|сантехник|engineering|mechanical|electrical|automation|construction|civil engineering',
+            'Хөдөлмөрийн аюулгүй байдал, эрүүл ахуй, байгаль орчин': r'хөдөлмөрийн аюулгүй байдал|аюулгүй байдал|эрүүл ахуй|байгаль орчин|экологи|хог хаягдал|цахилгааны аюулгүй байдал|хөдөлмөрийн эрүүл мэнд|safety|health and safety|environment|hse|ecology|waste management',
+            'Үйлдвэрлэл': r'үйлдвэрлэл|үйлдвэр|үйлдвэрлэлийн шугам|үйлдвэрлэлийн техник|машин механизм|борлуулалт|production|manufacturing|factory|industrial',
+            'Үйлчилгээ': r'үйлчилгээ|үйлчилгээний байгууллага|үйлчилгээний ажилтан|харилцагчийн үйлчилгээ|зочид буудал|хэрэглэгчийн үйлчилгээ|сувилахуйн үйлчилгээ|service|customer service|hospitality|client service',
+            'Хүний нөөц/захиргаа': r'хүний нөөц|хүний нөөцийн менежмент|цалин хөлс|цалин|нөөцийн төлөвлөлт|хөдөлмөрийн харилцаа|захиргаа|бичиг баримт|hr|human resources|administration|payroll|workforce planning|employee relations',
+            'Бусад': r'бусад|өөр|ерөнхий|ангилагдаагүй|miscellaneous|other',
+            'Удирдлага': r'удирдлага|менежмент|дарга|захирал|менежер|тэргүүлэгч|ажил хэргийн удирдлага|бизнесийн стратеги|management|leadership|executive|director|strategy',
+            'Худалдан авалт': r'худалдан авалт|худалдан авах|тендер|нийлүүлэгч|үнэлгээ|договораар худалдан авах|procurement|purchasing|tender|supplier|evaluation',
+            'Тээвэр ложистик': r'тээвэр|ачаа тээвэр|тээврийн үйлчилгээ|ачааны машин|ложистик|агуулах|бараа хүргэлт|transport|logistics|warehouse|shipping|cargo',
+            'Олон нийтийн харилцаа': r'олон нийтийн харилцаа|хэвлэл мэдээлэл|хэвлэлийн төлөөлөгч|пиар|нийтийн харилцаа|нийгмийн харилцаа|public relations|pr|media relations|communication',
+            'Контент медиа/Дизайн': r'контент|медиа|дизайн|график дизайн|видео продакшн|анимаци|зураглал|ux|ui|контент бүтээгч|content|media|design|graphic design|animation|illustration|ux/ui',
+            'Хөдөө аж ахуй': r'хөдөө аж ахуй|газар тариалан|мал аж ахуй|фермер|хүнс|таримал|хөдөө аж ахуйн технологи|agriculture|farming|livestock|agricultural technology'
         }
         
         for ind_name, pattern in industry_patterns.items():
@@ -145,11 +157,64 @@ def extract_from_search_term(search_term):
     # Common job titles in Mongolian
     job_patterns = {
         'Санхүүгийн менежер': r'санхүүгийн\s+менежер|finance\s+manager',
-        'Нягтлан бодогч': r'нягтлан\s+бодогч|accountant',
+        'Нягтлан бодогч': r'нягтлан\s+бодогч|нягтлан|accountant',
+        'Аудитор': r'аудитор|auditor',
+        'Татварын мэргэжилтэн': r'татварын\s+мэргэжилтэн|татварын\s+зөвлөх|tax\s+specialist|tax\s+consultant',
+        'Банкны теллер': r'банкны\s+теллер|теллер|bank\s+teller',
+        
         'Дата аналист': r'дата\s+аналист|өгөгдлийн\s+аналист|data\s+analyst',
+        'Мэдээллийн технологийн инженер': r'мэдээллийн\s+технологийн\s+инженер|айти\s+инженер|it\s+engineer',
         'Программ хөгжүүлэгч': r'программ\s+хөгжүүлэгч|програм\s+хөгжүүлэгч|developer|программист',
-        'Борлуулагч': r'борлуулагч|худалдагч|sales|seller'
-    }
+        'Системийн админ': r'системийн\s+админ|сүлжээний\s+админ|system\s+administrator|network\s+admin',
+        'Кибер аюулгүй байдлын шинжээч': r'кибер\s+аюулгүй\s+байдлын\s+шинжээч|cyber\s+security\s+specialist',
+        
+        'Борлуулагч': r'борлуулагч|худалдагч|sales|seller',
+        'Маркетингийн менежер': r'маркетингийн\s+менежер|маркетинг\s+удирдагч|marketing\s+manager',
+        'Брэнд менежер': r'брэнд\s+менежер|brand\s+manager',
+        'Зар сурталчилгааны мэргэжилтэн': r'зар\s+сурталчилгаа|реклам|advertising\s+specialist',
+        
+        'Хуульч': r'хуульч|өмгөөлөгч|lawyer|attorney',
+        'Хууль эрх зүйн зөвлөх': r'хууль\s+эрх\s+зүйн\s+зөвлөх|legal\s+consultant',
+        'Нотариат': r'нотариат|notary',
+        
+        'Багш': r'багш|сурган\s+хүмүүжүүлэгч|teacher',
+        'Их сургуулийн багш': r'их\s+сургуулийн\s+багш|профессор|university\s+lecturer|professor',
+        'Сургалтын менежер': r'сургалтын\s+менежер|training\s+manager',
+        
+        'Эмч': r'эмч|анагаахын\s+мэргэжилтэн|doctor',
+        'Сувилагч': r'сувилагч|nurse',
+        'Эм зүйч': r'эм\s+зүйч|фармацевт|pharmacist',
+        'Шүдний эмч': r'шүдний\s+эмч|dentist',
+        
+        'Барилгын инженер': r'барилгын\s+инженер|civil\s+engineer',
+        'Цахилгааны инженер': r'цахилгааны\s+инженер|electrical\s+engineer',
+        'Механик инженер': r'механик\s+инженер|mechanical\s+engineer',
+        'Автоматжуулалтын инженер': r'автоматжуулалтын\s+инженер|automation\s+engineer',
+        
+        'Хөдөлмөрийн аюулгүй байдлын мэргэжилтэн': r'хөдөлмөрийн\s+аюулгүй\s+байдлын\s+мэргэжилтэн|hse\s+specialist|safety\s+officer',
+        
+        'Үйлдвэрийн оператор': r'үйлдвэрийн\s+оператор|factory\s+operator',
+        'Тоног төхөөрөмжийн инженер': r'тоног\s+төхөөрөмжийн\s+инженер|equipment\s+engineer',
+        
+        'Зочид буудлын менежер': r'зочид\s+буудлын\s+менежер|hotel\s+manager',
+        'Үйлчилгээний ажилтан': r'үйлчилгээний\s+ажилтан|customer\s+service\s+representative',
+        
+        'Хүний нөөцийн менежер': r'хүний\s+нөөцийн\s+менежер|hr\s+manager',
+        'Цалин хөлсний мэргэжилтэн': r'цалин\s+хөлсний\s+мэргэжилтэн|payroll\s+specialist',
+        
+        'Гүйцэтгэх захирал': r'гүйцэтгэх\s+захирал|ceo|executive\s+director',
+        'Төслийн менежер': r'төслийн\s+менежер|project\s+manager',
+        
+        'Худалдан авалтын менежер': r'худалдан\s+авалтын\s+менежер|procurement\s+manager',
+        'Тээврийн менежер': r'тээврийн\s+менежер|logistics\s+manager|transport\s+manager',
+        
+        'Контент бүтээгч': r'контент\s+бүтээгч|content\s+creator',
+        'График дизайнер': r'график\s+дизайнер|graphic\s+designer',
+        'UX/UI дизайнер': r'ux/ui\s+дизайнер|ux\s+designer|ui\s+designer',
+        
+        'Фермер': r'фермер|газар\s+тариалангийн\s+мэргэжилтэн|farmer',
+        'Малын эмч': r'малын\s+эмч|veterinarian'
+}
     
     for title, pattern in job_patterns.items():
         if re.search(pattern, search_term, re.IGNORECASE):

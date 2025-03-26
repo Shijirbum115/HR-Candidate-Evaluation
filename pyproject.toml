@@ -9,6 +9,12 @@ dependencies = [
     "fastapi>=0.100",
     "uvicorn>=0.20",
     "python-dotenv>=1.0",
+    "psycopg2-binary>=2.9.5",
+    "pgvector>=0.2.0",
+    "numpy>=1.22.0",
+    "sentence-transformers>=2.2.0",
+    "scikit-learn>=1.0.0",
+    "rapidfuzz>=2.13.0",
 ]
 
 [project.optional-dependencies]
@@ -16,7 +22,20 @@ dev = [
     "pytest>=7.0",
     "flake8>=6.0",
     "black>=23.0",
+    "isort>=5.10.0",
+    "safety>=2.3.0",
+    "bandit>=1.7.0",
+    "mkdocs>=1.4.0",
+    "mkdocs-material>=8.5.0",
 ]
 
 [tool.black]
 line-length = 88
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

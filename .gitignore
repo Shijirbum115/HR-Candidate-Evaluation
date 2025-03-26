@@ -1,8 +1,41 @@
+# Python bytecode and cache
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Environment and local configuration
 .env
+.venv
+env/
+venv/
+ENV/
+.python-version
+
+# Logs
 *.log
+logs/
+!logs/.gitkeep
+
+# Distribution / packaging
 dist/
 build/
 *.egg-info/
-app.log
+*.egg
+
+# Cache files
+scripts/cache/
+!scripts/cache/.gitkeep
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Documentation
+site/
+
+# Migration checkpoint
+migration_checkpoint.txt
